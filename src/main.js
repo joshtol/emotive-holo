@@ -72,7 +72,7 @@ class EmoAssistant {
       enablePostProcessing: true,
       enableControls: true,
       autoRotate: true,
-      cameraDistance: isMobile ? 2.0 : 1.8,  // Mascot fills upper 2/3 of frame
+      cameraDistance: isMobile ? 2.0 : 1.6,  // Mascot fills upper 2/3 of frame
       fov: isMobile ? 45 : 45,
       enableBlinking: true,
       enableBreathing: true,
@@ -86,10 +86,11 @@ class EmoAssistant {
     this.mascot.start();
 
     // Keep OrbitControls target at origin (where mascot is) so rotation keeps mascot centered
-    // The rule of thirds positioning will be handled by CSS on the container
+    // On desktop, shift target down so mascot renders higher on screen
     const controls = this.mascot.core3D?.renderer?.controls;
     if (controls) {
-      controls.target.set(0, 0, 0);  // Keep at origin
+      const targetY = isMobile ? 0 : -0.15;
+      controls.target.set(0, targetY, 0);
       controls.update();
     }
 
@@ -104,11 +105,16 @@ class EmoAssistant {
       // The emitter renders with its own fixed camera on layer 3
       // Position it to sit on the table (higher Y), mascot floats above
       this.emitterBase = new EmitterBase(scene, camera, renderer, {
-        scale: isMobile ? 0.22 : 0.18,  // Larger on mobile for visual weight at bottom third
-        position: { x: 0, y: isMobile ? -0.55 : -0.5, z: 0 },  // Slightly lower on mobile
+        scale: isMobile ? 0.22 : 0.26,  // Larger on desktop
+        position: { x: 0, y: isMobile ? -0.55 : -0.52, z: 0 },  // Desktop position tuned for proper gap
         rotation: { x: 0, y: 0, z: 0 }
       });
       await this.emitterBase.load();
+
+      // Also shift emitter camera up on desktop to match main camera offset
+      if (!isMobile && this.emitterBase.emitterCamera) {
+        this.emitterBase.emitterCamera.position.y -= 0.15;
+      }
 
       // Hook into the mascot's render loop to render emitter after main scene
       // We need to render the emitter AFTER the main scene renders
@@ -138,8 +144,8 @@ class EmoAssistant {
       this.updateResponseProgress(progress);
     };
 
-    // Wire up word-by-word text reveal to sync with TTS
-    this.tts.onWordProgress = (visibleText, fullText) => {
+    // Wire up word-by-word text reveal to sync with TTS (sliding window)
+    this.tts.onWordProgress = (visibleText) => {
       if (this.state === 'speaking' && this.elements.screenText) {
         this.elements.screenText.textContent = visibleText;
       }
@@ -336,9 +342,10 @@ class EmoAssistant {
       // Normal response flow
       this.setState('speaking');
       console.log('Setting screen text:', text);
-      // Start with first word only - TTS will reveal progressively
-      const firstWord = text.split(/\s+/)[0] || text;
-      this.setScreen(firstWord, 'speaking');
+      // Start with first few words - TTS will scroll through with sliding window
+      const words = text.split(/\s+/);
+      const initialWords = words.slice(0, Math.min(6, words.length)).join(' ');
+      this.setScreen(initialWords, 'speaking');
       this._fullResponseText = text;  // Store for final display
 
       // Apply morph directive if present

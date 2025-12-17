@@ -73,10 +73,9 @@ body {
 #mascot-container {
   position: absolute;
   top: 0;
-  /* Position at right 1/3: center of container at 67% from left (33% from right) */
   left: 17%;  /* Shift right so mascot center lands at 67% from left */
   width: 100%;
-  height: 100%;
+  height: 100vh;  /* Full viewport height */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -85,8 +84,8 @@ body {
 }
 
 #mascot-container canvas {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100% !important;
+  height: 100vh !important;
 }
 
 /* Keep mascot fully visible when carousel is active - user is selecting appearance */
@@ -704,7 +703,7 @@ body {
   50% { opacity: 1; box-shadow: 0 0 12px rgba(100, 200, 180, 0.6); }
 }
 
-/* Phone text */
+/* Phone text - single line teleprompter style */
 #holo-phone .screen-text {
   font-size: 0.85rem;
   font-weight: 500;
@@ -715,10 +714,10 @@ body {
     0 0 16px rgba(100, 200, 180, 0.3);
   text-align: center;
   line-height: 1.4;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  max-height: 100%;
-  overflow-y: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
   z-index: 1;
 }
 
@@ -804,7 +803,7 @@ body {
 /* Cancel button - separate, positioned near phone */
 #cancel-btn {
   position: absolute;
-  bottom: 200px;
+  bottom: 180px;
   left: calc(67% + 100px);
   transform: translateX(-50%);
   width: 28px;

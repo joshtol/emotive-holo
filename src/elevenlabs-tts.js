@@ -124,15 +124,22 @@ export class ElevenLabsTTS {
           this.onProgress(progress);
         }
 
-        // Progressive word reveal
+        // Progressive word reveal with sliding window
         if (this.onWordProgress && this._words.length > 0) {
-          // Calculate how many words should be visible based on progress
+          // Calculate current word index based on progress
           // Add slight lead time so words appear just before they're spoken
           const adjustedProgress = Math.min(1, progress * 1.1 + 0.05);
-          const wordCount = Math.ceil(adjustedProgress * this._words.length);
-          const visibleWords = this._words.slice(0, wordCount);
+          const currentWordIndex = Math.floor(adjustedProgress * this._words.length);
+
+          // Show a sliding window of ~5-6 words for single-line display
+          const windowSize = 6;
+          const leadWords = 2;  // Show 2 words ahead of current
+          const startIndex = Math.max(0, currentWordIndex - (windowSize - leadWords));
+          const endIndex = Math.min(this._words.length, startIndex + windowSize);
+
+          const visibleWords = this._words.slice(startIndex, endIndex);
           const visibleText = visibleWords.join(' ');
-          this.onWordProgress(visibleText, this._currentText);
+          this.onWordProgress(visibleText, this._currentText, currentWordIndex);
         }
       };
 
