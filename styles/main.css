@@ -28,6 +28,18 @@
   --duration-fast: 120ms;
   --duration-normal: 200ms;
   --duration-slow: 400ms;
+
+  /* Layout - default desktop values, updated by layout-scaler.js for mobile */
+  --layout-center-x: 67%;
+  --phone-width: 260px;
+  --phone-height: 125px;
+  --phone-bottom: 115px;
+  --projector-width: 420px;
+  --projector-height: 140px;
+  --projector-bottom: 20px;
+  --cancel-bottom: 180px;
+  --cancel-offset-x: 100px;
+  --phone-font-size: 0.8rem;
 }
 
 body {
@@ -69,11 +81,34 @@ body {
   transition: filter 0.5s ease;
 }
 
+/* Emitter shadow - CSS-based occlusion shadow */
+/* Must be between background (z-index: 0) and mascot canvas */
+#emitter-shadow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1; /* Above background, below 3D canvas */
+}
+
+/* Dark contact shadow - now rendered via SVG #contact-shadow-svg for proper blur */
+#emitter-shadow .shadow-contact {
+  display: none;
+}
+
+/* Penumbra shadow - now rendered via SVG #emitter-shadows-svg for proper blur */
+#emitter-shadow .shadow-penumbra {
+  display: none;
+}
+
 /* 3D mascot container - Positioned at right 1/3 using rule of thirds */
 #mascot-container {
   position: absolute;
   top: 0;
-  left: 17%;  /* Shift right so mascot center lands at 67% from left */
+  /* Shift based on layout center (67% center means 17% left offset to center canvas there) */
+  left: calc(var(--layout-center-x) - 50%);
   width: 100%;
   height: 100vh;  /* Full viewport height */
   display: flex;
@@ -599,8 +634,8 @@ body {
 
 #holo-phone {
   position: absolute;
-  bottom: 115px;  /* Resting on emitter ledge */
-  left: 67%;  /* Align with mascot/emitter */
+  bottom: var(--phone-bottom);
+  left: var(--layout-center-x);
   transform: translateX(-50%) perspective(800px) rotateX(-15deg) rotateY(0deg);
   transform-origin: bottom center;
   z-index: 15;
@@ -610,8 +645,8 @@ body {
 
 /* Phone frame - iPhone 17 proportions (laid horizontally, leaning) */
 .phone-frame {
-  width: 260px;
-  height: 125px;
+  width: var(--phone-width);
+  height: var(--phone-height);
   padding: 8px;
 
   /* Dark glass phone body */
@@ -703,22 +738,24 @@ body {
   50% { opacity: 1; box-shadow: 0 0 12px rgba(100, 200, 180, 0.6); }
 }
 
-/* Phone text - single line teleprompter style */
+/* Phone text - CC-style multi-line display */
 #holo-phone .screen-text {
-  font-size: 0.85rem;
+  font-size: var(--phone-font-size);
   font-weight: 500;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   color: rgba(140, 230, 210, 0.95);
   text-shadow:
     0 0 8px rgba(120, 220, 200, 0.6),
     0 0 16px rgba(100, 200, 180, 0.3);
   text-align: center;
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
   width: 100%;
   z-index: 1;
+  /* Allow 2-3 lines of text */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* Hover state */
@@ -803,8 +840,8 @@ body {
 /* Cancel button - separate, positioned near phone */
 #cancel-btn {
   position: absolute;
-  bottom: 180px;
-  left: calc(67% + 100px);
+  bottom: var(--cancel-bottom);
+  left: calc(var(--layout-center-x) + var(--cancel-offset-x));
   transform: translateX(-50%);
   width: 28px;
   height: 28px;
@@ -849,11 +886,11 @@ body {
 
 #projector-base {
   position: absolute;
-  bottom: 20px;
-  left: 67%;  /* Align with mascot center at 33% from right edge */
+  bottom: var(--projector-bottom);
+  left: var(--layout-center-x);
   transform: translateX(-50%) perspective(800px) rotateX(25deg);
-  width: min(420px, 70vw);
-  height: 140px;
+  width: var(--projector-width);
+  height: var(--projector-height);
   pointer-events: auto;
   z-index: 5;
 }
@@ -908,64 +945,8 @@ body {
   transition: opacity var(--duration-slow) var(--ease-out), filter var(--duration-slow) var(--ease-out);
 }
 
-/* Mobile adjustments */
+/* Mobile adjustments - layout-scaler.js handles most positioning via CSS vars */
 @media (max-width: 768px) {
-  /* Center mascot on mobile */
-  #mascot-container {
-    left: 0;  /* Centered on mobile */
-    height: 100%;
-  }
-
-  /* Center projector base on mobile */
-  #projector-base {
-    left: 50%;  /* Centered on mobile */
-    width: min(340px, 85vw);
-    height: 120px;
-    bottom: 15px;
-  }
-
-  /* Center phone on mobile - scaled down iPhone 17 proportions */
-  #holo-phone {
-    left: 50%;  /* Centered on mobile */
-    bottom: 95px;  /* Resting on emitter ledge */
-  }
-
-  .phone-frame {
-    width: 200px;
-    height: 96px;
-    padding: 6px;
-    border-radius: 12px;
-  }
-
-  .phone-notch {
-    width: 48px;
-    height: 5px;
-    margin-bottom: 4px;
-  }
-
-  .phone-screen {
-    border-radius: 10px;
-    padding: 8px 12px;
-  }
-
-  .phone-indicator {
-    width: 60px;
-    height: 3px;
-    margin-top: 4px;
-  }
-
-  #holo-phone .screen-text {
-    font-size: 0.75rem;
-  }
-
-  #cancel-btn {
-    left: calc(50% + 80px);
-    bottom: 160px;
-    width: 24px;
-    height: 24px;
-    font-size: 0.8rem;
-  }
-
   .carousel-panel {
     padding: 20px 24px;
     margin: 0 16px;

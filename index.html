@@ -7,10 +7,52 @@
   <link rel="stylesheet" href="/styles/main.css">
 </head>
 <body>
+  <!-- SVG for emitter shadows with blur -->
+  <svg id="emitter-shadows-svg" width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1;">
+    <defs>
+      <filter id="contact-blur" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.6" />
+      </filter>
+      <filter id="penumbra-blur" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" />
+      </filter>
+      <filter id="ambient-blur" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="1" />
+      </filter>
+    </defs>
+    <!-- Ambient shadow - largest, most diffuse (rendered first, furthest back) -->
+    <polygon
+      id="shadow-ambient"
+      points="59.9,82.8 77.8,97.8 77.1,104.3 31.9,101.4"
+      fill="rgba(0,0,0,0.18)"
+      filter="url(#ambient-blur)"
+    />
+    <!-- Penumbra shadow - larger, more diffuse -->
+    <polygon
+      id="shadow-penumbra"
+      points="60.1,83.1 78.0,98.1 75.9,100.4 50.0,100.0"
+      fill="rgba(0,0,0,0.39)"
+      filter="url(#penumbra-blur)"
+    />
+    <!-- Contact shadow - tight, darker -->
+    <polygon
+      id="shadow-contact"
+      points="60.0,82.9 74.8,82.9 77.9,98.3 55.9,98.4"
+      fill="rgba(0,0,0,0.94)"
+      filter="url(#contact-blur)"
+    />
+  </svg>
   <!-- Main hologram container -->
   <div id="hologram-container">
     <!-- Background layer - can be blurred independently -->
     <div id="background-layer"></div>
+
+    <!-- Emitter shadow - multi-layer CSS shadow system -->
+    <div id="emitter-shadow">
+      <div class="shadow-contact"></div>
+      <div class="shadow-core"></div>
+      <div class="shadow-penumbra"></div>
+    </div>
 
     <!-- 3D mascot renders here -->
     <div id="mascot-container"></div>

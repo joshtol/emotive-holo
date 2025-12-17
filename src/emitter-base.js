@@ -61,21 +61,24 @@ export class EmitterBase {
    */
   _setupEmitterLights() {
     // Ambient light for base illumination
-    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     ambient.layers.enable(3);
     this.scene.add(ambient);
     this.emitterLights.push(ambient);
 
-    // Key light from front-top
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    keyLight.position.set(2, 3, 3);
+    // Key light matching the background's window lighting
+    const keyLight = new THREE.DirectionalLight(0xfff8f0, 1.0);
+    keyLight.position.set(2.5, 3.5, -2.5);
+    keyLight.target.position.set(0, this.options.position.y, 0);
     keyLight.layers.enable(3);
+
     this.scene.add(keyLight);
+    this.scene.add(keyLight.target);
     this.emitterLights.push(keyLight);
 
-    // Fill light from side
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    fillLight.position.set(-2, 1, 2);
+    // Fill light from front-left
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.25);
+    fillLight.position.set(-2, 1.5, 3);
     fillLight.layers.enable(3);
     this.scene.add(fillLight);
     this.emitterLights.push(fillLight);
@@ -482,7 +485,7 @@ export class EmitterBase {
             this.options.rotation.z
           );
 
-          // Put emitter on layer 3 so it can be rendered separately
+          // Put emitter ONLY on layer 3 for separate rendering
           this.mesh.layers.set(3);
           this.mesh.traverse((child) => {
             if (child.isMesh) {
@@ -547,7 +550,7 @@ export class EmitterBase {
               metalness: 0.3,
               roughness: 0.6
             });
-            // Put on layer 3
+            // Put ONLY on layer 3 for separate rendering
             child.layers.set(3);
           }
         });
@@ -565,7 +568,7 @@ export class EmitterBase {
           this.options.rotation.z
         );
 
-        // Put emitter on layer 3
+        // Put emitter ONLY on layer 3 for separate rendering
         this.mesh.layers.set(3);
 
         // Add to scene
@@ -642,6 +645,89 @@ export class EmitterBase {
       this.emitterCamera.aspect = aspect;
       this.emitterCamera.updateProjectionMatrix();
     }
+  }
+
+  /**
+   * Get the screen bounds of the emitter mesh by projecting its 3D bounding box
+   * through the emitter camera. Returns coordinates in SVG viewBox percentage (0-100).
+   *
+   * IMPORTANT: The canvas may be offset from the viewport via CSS positioning.
+   * The layoutCenterX parameter adjusts for this offset so the returned bounds
+   * are in VIEWPORT coordinates (matching where the SVG shadows are placed).
+   *
+   * This is used to make shadows proportionate to the actual rendered emitter size,
+   * regardless of viewport dimensions, camera settings, or layout mode.
+   *
+   * @param {number} layoutCenterX - The CSS layout center X in viewport % (e.g., 67 for desktop, 50 for mobile)
+   * @returns {{ left: number, right: number, top: number, bottom: number, width: number, height: number, centerX: number, centerY: number } | null}
+   */
+  getScreenBounds(layoutCenterX = 50) {
+    if (!this.mesh || !this.emitterCamera || !this.renderer) return null;
+
+    // Compute bounding box of the emitter mesh in world space
+    const box = new THREE.Box3().setFromObject(this.mesh);
+
+    // Get all 8 corners of the bounding box
+    const corners = [
+      new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+      new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+    ];
+
+    // Project each corner to screen space (normalized device coordinates: -1 to 1)
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    // Update camera matrices for accurate projection
+    this.emitterCamera.updateMatrixWorld();
+    this.emitterCamera.updateProjectionMatrix();
+
+    for (const corner of corners) {
+      const projected = corner.clone().project(this.emitterCamera);
+
+      // Only consider points in front of camera
+      if (projected.z < 1) {
+        minX = Math.min(minX, projected.x);
+        maxX = Math.max(maxX, projected.x);
+        minY = Math.min(minY, projected.y);
+        maxY = Math.max(maxY, projected.y);
+      }
+    }
+
+    // Convert from NDC (-1 to 1) to canvas percentage (0 to 100)
+    // NDC: x=-1 is left, x=1 is right; y=-1 is bottom, y=1 is top
+    const canvasLeft = ((minX + 1) / 2) * 100;
+    const canvasRight = ((maxX + 1) / 2) * 100;
+    const canvasBottom = ((minY + 1) / 2) * 100;
+    const canvasTop = ((maxY + 1) / 2) * 100;
+
+    // The canvas is positioned with CSS: left = layoutCenterX - 50%
+    // So canvas position 50% maps to viewport position layoutCenterX
+    // Viewport X = canvasX + (layoutCenterX - 50)
+    const xOffset = layoutCenterX - 50;
+    const left = canvasLeft + xOffset;
+    const right = canvasRight + xOffset;
+
+    // For SVG which has y=0 at top, we need to flip
+    // SVG coords: top of screen = 0, bottom = 100
+    const svgTop = 100 - canvasTop;
+    const svgBottom = 100 - canvasBottom;
+
+    return {
+      left,
+      right,
+      top: svgTop,
+      bottom: svgBottom,
+      width: right - left,  // Width doesn't change with offset
+      height: svgBottom - svgTop,
+      centerX: (left + right) / 2,
+      centerY: (svgTop + svgBottom) / 2
+    };
   }
 
   destroy() {

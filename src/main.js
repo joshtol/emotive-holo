@@ -10,6 +10,8 @@ import { ElevenLabsTTS } from './elevenlabs-tts.js';
 import { MeditationController } from './meditation.js';
 import { GeometryCarousel } from './carousel.js';
 import { EmitterBase } from './emitter-base.js';
+import { layoutScaler } from './layout-scaler.js';
+import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
   constructor() {
@@ -62,8 +64,9 @@ class EmoAssistant {
   async init() {
     console.log('Initializing Emo Assistant...');
 
-    // Detect mobile for responsive sizing
-    const isMobile = window.innerWidth < 768;
+    // Initialize layout scaler for consistent proportions across resolutions
+    layoutScaler.init();
+    const layout3D = layoutScaler.get3DParams();
 
     // Initialize 3D mascot with multiplexer material for shader effects
     this.mascot = new EmotiveMascot3D({
@@ -72,8 +75,8 @@ class EmoAssistant {
       enablePostProcessing: true,
       enableControls: true,
       autoRotate: true,
-      cameraDistance: isMobile ? 2.0 : 1.6,  // Mascot fills upper 2/3 of frame
-      fov: isMobile ? 45 : 45,
+      cameraDistance: layout3D.cameraDistance,
+      fov: 45,
       enableBlinking: true,
       enableBreathing: true,
       targetFPS: 60,
@@ -89,7 +92,7 @@ class EmoAssistant {
     // On desktop, shift target down so mascot renders higher on screen
     const controls = this.mascot.core3D?.renderer?.controls;
     if (controls) {
-      const targetY = isMobile ? 0 : -0.15;
+      const targetY = layoutScaler.isMobile ? 0 : -0.15;
       controls.target.set(0, targetY, 0);
       controls.update();
     }
@@ -101,18 +104,20 @@ class EmoAssistant {
     const camera = this.mascot.core3D?.renderer?.camera;
     const renderer = this.mascot.core3D?.renderer?.renderer;
     if (scene && camera && renderer) {
-      // Emitter uses realistic proportions
-      // The emitter renders with its own fixed camera on layer 3
-      // Position it to sit on the table (higher Y), mascot floats above
+      // Emitter uses realistic proportions from layout scaler
       this.emitterBase = new EmitterBase(scene, camera, renderer, {
-        scale: isMobile ? 0.22 : 0.26,  // Larger on desktop
-        position: { x: 0, y: isMobile ? -0.55 : -0.52, z: 0 },  // Desktop position tuned for proper gap
+        scale: layout3D.emitterScale,
+        position: { x: 0, y: layout3D.emitterY, z: 0 },
         rotation: { x: 0, y: 0, z: 0 }
       });
       await this.emitterBase.load();
 
+      // Connect emitter to layoutScaler for dynamic shadow sizing
+      // This allows shadows to scale proportionately to the actual rendered emitter
+      layoutScaler.setEmitter(this.emitterBase);
+
       // Also shift emitter camera up on desktop to match main camera offset
-      if (!isMobile && this.emitterBase.emitterCamera) {
+      if (!layoutScaler.isMobile && this.emitterBase.emitterCamera) {
         this.emitterBase.emitterCamera.position.y -= 0.15;
       }
 
@@ -129,6 +134,19 @@ class EmoAssistant {
       };
     }
 
+    // Listen for layout scale changes to update shadows
+    window.addEventListener('layoutscale', () => {
+      layoutScaler.updateShadows();
+    });
+    // Initial shadow update - now with emitter bounds available
+    layoutScaler.updateShadows();
+
+    // Also update shadows after a short delay to ensure 3D is fully rendered
+    // This gives us accurate emitter bounds for shadow positioning
+    setTimeout(() => {
+      layoutScaler.updateShadows();
+    }, 100);
+
     // Set initial calm state
     this.mascot.feel('calm, gentle breathing');
 
@@ -144,10 +162,10 @@ class EmoAssistant {
       this.updateResponseProgress(progress);
     };
 
-    // Wire up word-by-word text reveal to sync with TTS (sliding window)
-    this.tts.onWordProgress = (visibleText) => {
+    // Wire up CC-style chunk display - shows 2-3 lines, advances when TTS catches up
+    this.tts.onChunkChange = (chunkText) => {
       if (this.state === 'speaking' && this.elements.screenText) {
-        this.elements.screenText.textContent = visibleText;
+        this.elements.screenText.textContent = chunkText;
       }
     };
 
@@ -193,11 +211,21 @@ class EmoAssistant {
       }, { passive: false });
     });
 
-    // Keyboard shortcut (spacebar)
+    // Keyboard shortcut (spacebar for voice, escape to cancel)
     document.addEventListener('keydown', (e) => {
       if (e.code === 'Space' && !e.repeat && this.state === 'idle') {
         e.preventDefault();
         this.startListening();
+      }
+      // Escape key cancels meditation or current operation
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        if (this.state === 'meditation') {
+          this.meditation.stop();
+          this.setState('idle');
+        } else {
+          this.cancelCurrentOperation();
+        }
       }
     });
     document.addEventListener('keyup', (e) => {
@@ -225,6 +253,16 @@ class EmoAssistant {
     this.meditation.onEnd = () => {
       this.state = 'idle';
     };
+
+    // Click on meditation overlay to cancel (tap anywhere to exit)
+    if (this.elements.meditationOverlay) {
+      this.elements.meditationOverlay.addEventListener('click', () => {
+        if (this.state === 'meditation') {
+          this.meditation.stop();
+          this.setState('idle');
+        }
+      });
+    }
 
     // Voice input result
     this.voiceInput.onResult = (transcript) => {
@@ -342,10 +380,9 @@ class EmoAssistant {
       // Normal response flow
       this.setState('speaking');
       console.log('Setting screen text:', text);
-      // Start with first few words - TTS will scroll through with sliding window
-      const words = text.split(/\s+/);
-      const initialWords = words.slice(0, Math.min(6, words.length)).join(' ');
-      this.setScreen(initialWords, 'speaking');
+      // TTS will handle chunk display via onChunkChange callback
+      // Just set speaking state, first chunk shown by TTS.speak()
+      this.setScreen('', 'speaking');
       this._fullResponseText = text;  // Store for final display
 
       // Apply morph directive if present
