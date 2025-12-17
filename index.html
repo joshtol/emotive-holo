@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emo - Holographic AI Assistant</title>
+  <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+  <!-- Main hologram container -->
+  <div id="hologram-container">
+    <!-- Background layer - can be blurred independently -->
+    <div id="background-layer"></div>
+
+    <!-- 3D mascot renders here -->
+    <div id="mascot-container"></div>
+
+    <!-- Projector base - 3D emitter (screen removed, now separate HUD) -->
+    <div id="projector-base">
+      <div class="projector-glow"></div>
+      <div class="projector-ring"></div>
+      <div class="projector-body"></div>
+    </div>
+
+    <!-- Holographic phone display - futuristic device leaning against emitter -->
+    <div id="holo-phone">
+      <div class="phone-frame">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <span class="screen-text">Hold to speak</span>
+        </div>
+        <div class="phone-indicator"></div>
+      </div>
+    </div>
+    <!-- Cancel button - separate from phone for reliable clicks -->
+    <button id="cancel-btn" class="hidden" aria-label="Cancel">✕</button>
+
+    <!-- Carousel (hidden by default) -->
+    <div id="carousel" class="hidden">
+      <div id="carousel-left" class="carousel-preview"></div>
+      <div id="carousel-center"></div>
+      <div id="carousel-right" class="carousel-preview"></div>
+      <div id="variant-dots"></div>
+    </div>
+
+    <!-- Caption (now uses integrated projector screen) -->
+    <div id="caption"></div>
+
+    <!-- Status indicator -->
+    <div id="status"></div>
+
+    <!-- PTT button removed - users hold the HUD or spacebar to speak -->
+
+    <!-- Geometry selector hint -->
+    <div id="geometry-hint">
+      <span class="hint-left">◀</span>
+      <span class="hint-text">Tap crystal to browse</span>
+      <span class="hint-right">▶</span>
+    </div>
+  </div>
+
+  <!-- Voice indicator overlay -->
+  <div id="voice-indicator" class="hidden">
+    <div class="voice-waves">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="voice-text">Listening...</div>
+  </div>
+
+  <!-- Meditation overlay - blurs background only, not mascot -->
+  <div id="meditation-overlay" class="hidden">
+    <div class="meditation-blur-layer"></div>
+    <div class="meditation-content">
+      <div id="meditation-phase">Breathe In</div>
+      <div id="meditation-timer"></div>
+      <div id="meditation-progress">
+        <div class="progress-bar">
+          <div class="progress-fill"></div>
+        </div>
+        <div class="progress-label">Cycle 1 of 5</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Response progress bar (for stories, TTS, etc.) -->
+  <div id="response-progress" class="hidden">
+    <div class="progress-bar">
+      <div class="progress-fill"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,988 @@
+/* Emo Hologram - Approachable Futurism Theme */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Warm, muted palette with hopeful accent */
+  --glass-bg: rgba(20, 22, 28, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --text-primary: rgba(255, 255, 255, 0.9);
+  --text-secondary: rgba(255, 255, 255, 0.5);
+  --text-tertiary: rgba(255, 255, 255, 0.25);
+  --accent: rgba(140, 180, 255, 0.9);
+  --accent-glow: rgba(140, 180, 255, 0.3);
+  --accent-subtle: rgba(140, 180, 255, 0.15);
+
+  /* Soft-Glass surfaces */
+  --blur-amount: 20px;
+  --radius-soft: 16px;
+  --radius-pill: 50px;
+
+  /* Timing - "considered" delays */
+  --ease-out: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 400ms;
+}
+
+body {
+  background: #000;
+  color: var(--text-primary);
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Main container - Rule of thirds layout */
+#hologram-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  background: #000;
+  overflow: hidden;
+}
+
+/* Separate background layer - can be blurred independently */
+#background-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/assets/backgrounds/living-room.jpg');
+  background-size: cover;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  z-index: 0;
+  transition: filter 0.5s ease;
+}
+
+/* 3D mascot container - Positioned at right 1/3 using rule of thirds */
+#mascot-container {
+  position: absolute;
+  top: 0;
+  /* Position at right 1/3: center of container at 67% from left (33% from right) */
+  left: 17%;  /* Shift right so mascot center lands at 67% from left */
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity var(--duration-slow) var(--ease-out);
+}
+
+#mascot-container canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Keep mascot fully visible when carousel is active - user is selecting appearance */
+#hologram-container.carousel-active #mascot-container {
+  opacity: 1;
+}
+
+/* Caption - Hidden, we use the integrated projector screen instead */
+#caption {
+  display: none;
+}
+
+/* Status indicator - Minimal, ambient */
+#status {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  opacity: 0;
+  transition: opacity var(--duration-slow) var(--ease-out);
+}
+
+#status.visible {
+  opacity: 1;
+}
+
+/* PTT button removed - using holographic HUD instead */
+
+/* Geometry hint - Hidden since screen displays main CTA */
+#geometry-hint {
+  display: none;
+}
+
+/* Voice indicator overlay - Calmer, less intrusive */
+#voice-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn var(--duration-normal) var(--ease-out);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#voice-indicator.hidden {
+  display: none;
+}
+
+.voice-waves {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 50px;
+}
+
+.voice-waves span {
+  width: 4px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: wave 1s ease-in-out infinite;
+}
+
+.voice-waves span:nth-child(1) { animation-delay: 0s; }
+.voice-waves span:nth-child(2) { animation-delay: 0.15s; }
+.voice-waves span:nth-child(3) { animation-delay: 0.3s; }
+.voice-waves span:nth-child(4) { animation-delay: 0.15s; }
+.voice-waves span:nth-child(5) { animation-delay: 0s; }
+
+@keyframes wave {
+  0%, 100% { height: 16px; opacity: 0.5; }
+  50% { height: 40px; opacity: 1; }
+}
+
+.voice-text {
+  margin-top: 24px;
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CAROUSEL - Approachable Futurism Redesign
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#carousel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 180px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+#carousel.hidden {
+  display: none;
+}
+
+#carousel > * {
+  pointer-events: auto;
+}
+
+/* Remove the old carousel-center - we use the live mascot now */
+#carousel-center {
+  display: none;
+}
+
+/* Carousel bottom panel - Soft glass */
+.carousel-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--blur-amount));
+  -webkit-backdrop-filter: blur(var(--blur-amount));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-soft);
+  padding: 24px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: slideUp var(--duration-slow) var(--ease-out);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Navigation row */
+.carousel-nav {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.carousel-arrow {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.carousel-arrow:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+.carousel-arrow:active {
+  transform: scale(0.95);
+}
+
+/* Geometry name display */
+.carousel-title {
+  text-align: center;
+  min-width: 120px;
+}
+
+.carousel-title h2 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+  margin: 0;
+}
+
+.carousel-title .subtitle {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-top: 4px;
+}
+
+/* Variant pills - Horizontal, scrollable, better touch targets */
+.carousel-variants {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 100%;
+}
+
+.variant-pill {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+.variant-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  transform: scale(1.02);
+}
+
+.variant-pill.active {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* Action buttons */
+.carousel-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.carousel-btn {
+  padding: 10px 28px;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  border: none;
+  outline: none;
+}
+
+.carousel-btn.primary {
+  background: var(--accent);
+  color: #000;
+}
+
+.carousel-btn.primary:hover {
+  background: rgba(160, 195, 255, 1);
+  transform: scale(1.02);
+}
+
+.carousel-btn.secondary {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+}
+
+.carousel-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+/* Close button - Top right, minimal */
+.carousel-close {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--blur-amount));
+  -webkit-backdrop-filter: blur(var(--blur-amount));
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-out);
+  z-index: 51;
+}
+
+.carousel-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+/* Hide old DOM elements that carousel.js creates */
+#carousel-left,
+#carousel-right,
+#variant-dots {
+  display: none !important;
+}
+
+/* Meditation overlay - Blurs background only, NOT the mascot */
+#meditation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 50;
+  pointer-events: none;
+}
+
+#meditation-overlay.hidden {
+  display: none;
+}
+
+/* Blur layer - just a dim overlay, NO backdrop-filter (that blurs the mascot) */
+.meditation-blur-layer {
+  display: none; /* Disabled - we use element-specific blur instead */
+}
+
+/* Apply blur to specific elements when meditation is active - NOT the mascot */
+#hologram-container.meditation-active #background-layer {
+  filter: blur(10px) brightness(0.6);
+}
+
+#hologram-container.meditation-active #projector-base {
+  filter: blur(6px);
+  opacity: 0.3;
+  transition: filter 0.5s ease, opacity 0.5s ease;
+}
+
+#hologram-container.meditation-active #holo-phone {
+  filter: blur(4px);
+  opacity: 0.2;
+  transition: filter 0.5s ease, opacity 0.5s ease;
+}
+
+#hologram-container.meditation-active #cancel-btn {
+  display: none;
+}
+
+/* Mascot stays crisp - explicitly no blur */
+#hologram-container.meditation-active #mascot-container {
+  filter: none !important;
+}
+
+/* Meditation content - positioned at top */
+.meditation-content {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+#meditation-phase {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 6px;
+  animation: breathe-text 4s ease-in-out infinite;
+  text-shadow: 0 0 20px var(--accent-glow);
+}
+
+@keyframes breathe-text {
+  0%, 100% { opacity: 0.6; transform: scale(0.98); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+#meditation-timer {
+  font-size: 2.5rem;
+  font-weight: 200;
+  color: var(--text-secondary);
+}
+
+/* Meditation progress */
+#meditation-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+#meditation-progress .progress-label {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROGRESS BAR - Used for TTS responses, stories, meditation
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.progress-bar {
+  width: 200px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent) 0%, rgba(180, 220, 255, 0.9) 100%);
+  border-radius: 2px;
+  transition: width 0.3s var(--ease-out);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Response progress bar - positioned above projector screen */
+#response-progress {
+  position: fixed;
+  bottom: 180px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+
+#response-progress:not(.hidden) {
+  opacity: 1;
+}
+
+#response-progress.hidden {
+  display: none;
+}
+
+#response-progress .progress-bar {
+  width: 160px;
+  height: 3px;
+}
+
+/* Mobile: position progress bar relative to centered layout */
+@media (max-width: 768px) {
+  #response-progress {
+    bottom: 160px;
+  }
+
+  #response-progress .progress-bar {
+    width: 140px;
+  }
+
+  .meditation-content {
+    top: 40px;
+  }
+
+  #meditation-phase {
+    font-size: 1.2rem;
+    letter-spacing: 4px;
+  }
+
+  #meditation-timer {
+    font-size: 2rem;
+  }
+
+  .progress-bar {
+    width: 160px;
+  }
+}
+
+/* Hidden utility */
+.hidden {
+  display: none !important;
+}
+
+/* Scrollbar hide */
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HOLOGRAPHIC PHONE - Futuristic phone display leaning against emitter
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#holo-phone {
+  position: absolute;
+  bottom: 115px;  /* Resting on emitter ledge */
+  left: 67%;  /* Align with mascot/emitter */
+  transform: translateX(-50%) perspective(800px) rotateX(-15deg) rotateY(0deg);
+  transform-origin: bottom center;
+  z-index: 15;
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+/* Phone frame - iPhone 17 proportions (laid horizontally, leaning) */
+.phone-frame {
+  width: 260px;
+  height: 125px;
+  padding: 8px;
+
+  /* Dark glass phone body */
+  background: linear-gradient(
+    165deg,
+    rgba(30, 35, 40, 0.95) 0%,
+    rgba(15, 18, 22, 0.98) 50%,
+    rgba(25, 30, 35, 0.95) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  /* Phone bezels */
+  border: 2px solid rgba(60, 65, 75, 0.8);
+  border-radius: 16px;
+
+  box-shadow:
+    /* Outer glow */
+    0 0 20px rgba(80, 200, 180, 0.15),
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    /* Inner highlight */
+    inset 0 1px 1px rgba(255, 255, 255, 0.1),
+    /* Bottom shadow from leaning */
+    0 15px 25px -10px rgba(0, 0, 0, 0.5);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Phone notch/camera area - Dynamic Island style */
+.phone-notch {
+  width: 60px;
+  height: 6px;
+  background: rgba(30, 35, 45, 0.95);
+  border-radius: 3px;
+  margin-bottom: 6px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Phone screen area */
+.phone-screen {
+  flex: 1;
+  width: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(5, 15, 20, 0.95) 0%,
+    rgba(10, 25, 30, 0.9) 100%
+  );
+  border-radius: 14px;
+  border: 1px solid rgba(80, 180, 160, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Screen inner glow */
+.phone-screen::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(80, 200, 180, 0.08) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+/* Bottom indicator light - home bar style */
+.phone-indicator {
+  width: 80px;
+  height: 4px;
+  background: rgba(100, 200, 180, 0.6);
+  border-radius: 2px;
+  margin-top: 6px;
+  box-shadow: 0 0 8px rgba(100, 200, 180, 0.4);
+  animation: indicatorPulse 2s ease-in-out infinite;
+}
+
+@keyframes indicatorPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; box-shadow: 0 0 12px rgba(100, 200, 180, 0.6); }
+}
+
+/* Phone text */
+#holo-phone .screen-text {
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: rgba(140, 230, 210, 0.95);
+  text-shadow:
+    0 0 8px rgba(120, 220, 200, 0.6),
+    0 0 16px rgba(100, 200, 180, 0.3);
+  text-align: center;
+  line-height: 1.4;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-height: 100%;
+  overflow-y: auto;
+  z-index: 1;
+}
+
+/* Hover state */
+#holo-phone:hover {
+  transform: translateX(-50%) perspective(800px) rotateX(-22deg);
+}
+
+#holo-phone:hover .phone-frame {
+  border-color: rgba(100, 180, 160, 0.6);
+  box-shadow:
+    0 0 25px rgba(80, 200, 180, 0.25),
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+}
+
+#holo-phone:hover .phone-screen {
+  border-color: rgba(100, 200, 180, 0.5);
+}
+
+/* Active/Listening state */
+#holo-phone:active,
+#holo-phone.listening {
+  transform: translateX(-50%) perspective(800px) rotateX(-20deg) scale(0.98);
+}
+
+#holo-phone.listening .phone-frame {
+  border-color: rgba(120, 220, 200, 0.7);
+  box-shadow:
+    0 0 30px rgba(100, 220, 200, 0.35),
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 0 15px rgba(100, 220, 200, 0.05);
+}
+
+#holo-phone.listening .phone-screen {
+  border-color: rgba(120, 230, 210, 0.6);
+  background: linear-gradient(
+    180deg,
+    rgba(10, 25, 30, 0.95) 0%,
+    rgba(15, 35, 40, 0.9) 100%
+  );
+}
+
+#holo-phone.listening .screen-text {
+  color: rgba(160, 250, 230, 0.98);
+  text-shadow:
+    0 0 10px rgba(140, 240, 220, 0.8),
+    0 0 20px rgba(120, 220, 200, 0.5);
+  animation: textPulse 1s ease-in-out infinite;
+}
+
+#holo-phone.listening .phone-indicator {
+  background: rgba(120, 230, 210, 0.9);
+  box-shadow: 0 0 12px rgba(120, 230, 210, 0.7);
+}
+
+@keyframes textPulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; }
+}
+
+/* Speaking state */
+#holo-phone.speaking .phone-frame {
+  border-color: rgba(140, 200, 220, 0.6);
+}
+
+#holo-phone.speaking .phone-screen {
+  border-color: rgba(140, 200, 220, 0.4);
+}
+
+#holo-phone.speaking .screen-text {
+  color: rgba(170, 220, 230, 0.95);
+  text-shadow:
+    0 0 8px rgba(150, 200, 220, 0.5),
+    0 0 16px rgba(130, 180, 200, 0.3);
+}
+
+#holo-phone.speaking .phone-indicator {
+  background: rgba(140, 200, 220, 0.7);
+  box-shadow: 0 0 8px rgba(140, 200, 220, 0.5);
+}
+
+/* Cancel button - separate, positioned near phone */
+#cancel-btn {
+  position: absolute;
+  bottom: 200px;
+  left: calc(67% + 100px);
+  transform: translateX(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 100, 100, 0.5);
+  border-radius: 50%;
+  background: rgba(40, 20, 20, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 140, 140, 0.9);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-out);
+  z-index: 20;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+#cancel-btn.hidden {
+  display: none;
+}
+
+#cancel-btn:hover {
+  background: rgba(80, 30, 30, 0.9);
+  border-color: rgba(255, 140, 140, 0.7);
+  color: rgba(255, 200, 200, 1);
+  transform: translateX(-50%) scale(1.1);
+  box-shadow: 0 0 15px rgba(255, 100, 100, 0.4);
+}
+
+#cancel-btn:active {
+  transform: translateX(-50%) scale(0.95);
+  background: rgba(100, 40, 40, 0.95);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROJECTOR BASE - 3D Emitter device (screen moved to HUD)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#projector-base {
+  position: absolute;
+  bottom: 20px;
+  left: 67%;  /* Align with mascot center at 33% from right edge */
+  transform: translateX(-50%) perspective(800px) rotateX(25deg);
+  width: min(420px, 70vw);
+  height: 140px;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+/* Soft white/cyan holographic glow rising from the base */
+/* HIDDEN - Using 3D emitter model instead */
+.projector-glow {
+  display: none;
+}
+
+@keyframes projectorPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Glowing white/cyan ring - projector aperture */
+/* HIDDEN - Using 3D emitter model instead */
+.projector-ring {
+  display: none;
+}
+
+@keyframes ringGlow {
+  0%, 100% {
+    box-shadow:
+      0 0 15px rgba(180, 200, 240, 0.5),
+      0 0 30px rgba(160, 190, 255, 0.25);
+    opacity: 0.8;
+  }
+  50% {
+    box-shadow:
+      0 0 25px rgba(220, 235, 255, 0.85),
+      0 0 50px rgba(180, 200, 240, 0.4),
+      0 0 80px rgba(160, 190, 255, 0.2);
+    opacity: 1;
+  }
+}
+
+/* Main body - HIDDEN, using 3D emitter model instead */
+.projector-body {
+  display: none;
+}
+
+/* Dim projector and phone when carousel is active */
+#hologram-container.carousel-active #projector-base {
+  opacity: 0.5;
+  transition: opacity var(--duration-slow) var(--ease-out);
+}
+
+#hologram-container.carousel-active #holo-phone {
+  opacity: 0.3;
+  filter: blur(2px);
+  transition: opacity var(--duration-slow) var(--ease-out), filter var(--duration-slow) var(--ease-out);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  /* Center mascot on mobile */
+  #mascot-container {
+    left: 0;  /* Centered on mobile */
+    height: 100%;
+  }
+
+  /* Center projector base on mobile */
+  #projector-base {
+    left: 50%;  /* Centered on mobile */
+    width: min(340px, 85vw);
+    height: 120px;
+    bottom: 15px;
+  }
+
+  /* Center phone on mobile - scaled down iPhone 17 proportions */
+  #holo-phone {
+    left: 50%;  /* Centered on mobile */
+    bottom: 95px;  /* Resting on emitter ledge */
+  }
+
+  .phone-frame {
+    width: 200px;
+    height: 96px;
+    padding: 6px;
+    border-radius: 12px;
+  }
+
+  .phone-notch {
+    width: 48px;
+    height: 5px;
+    margin-bottom: 4px;
+  }
+
+  .phone-screen {
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+
+  .phone-indicator {
+    width: 60px;
+    height: 3px;
+    margin-top: 4px;
+  }
+
+  #holo-phone .screen-text {
+    font-size: 0.75rem;
+  }
+
+  #cancel-btn {
+    left: calc(50% + 80px);
+    bottom: 160px;
+    width: 24px;
+    height: 24px;
+    font-size: 0.8rem;
+  }
+
+  .carousel-panel {
+    padding: 20px 24px;
+    margin: 0 16px;
+    width: calc(100% - 32px);
+  }
+
+  .carousel-nav {
+    gap: 20px;
+  }
+
+  .carousel-arrow {
+    width: 40px;
+    height: 40px;
+  }
+
+  .carousel-title h2 {
+    font-size: 1.1rem;
+  }
+}
