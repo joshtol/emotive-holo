@@ -31,14 +31,15 @@ export class HoloPhone {
     this._screenText = 'Hold to speak';
     this._screenState = 'idle';  // idle, listening, processing, speaking, carousel
     this._animationFrame = 0;
+    this._progress = 0;  // TTS progress 0-1
 
     // Carousel state
     this._carouselData = null;  // { geometries, currentIndex, currentVariantIndex, variants, phase }
     this._carouselHitRegions = [];  // { name, x, y, w, h, extra? }[]
 
     // UV calibration values (can be adjusted in grid mode)
-    this._uvMin = { x: 0.04, y: 0.27 };
-    this._uvMax = { x: 0.36, y: 0.91 };
+    this._uvMin = { x: 0.023, y: 0.194 };
+    this._uvMax = { x: 0.374, y: 0.990 };
     this._uvStep = 0.01;
     this._activeControl = 'minY'; // minX, minY, maxX, maxY
 
@@ -135,9 +136,6 @@ export class HoloPhone {
       default:
         this._drawIdleState(ctx, w, h);
     }
-
-    // Add screen edge glow
-    this._drawScreenGlow(ctx, w, h);
 
     // Mark texture for update
     if (this.screenTexture) {
@@ -252,26 +250,28 @@ export class HoloPhone {
       ctx.fillText(line, w / 2, startY + i * lineHeight);
     });
 
-    // Animated speaking indicator
-    const dotY = h - 40;
-    for (let i = 0; i < 3; i++) {
-      const phase = this._animationFrame * 0.2 + i * 0.5;
-      const bounce = Math.abs(Math.sin(phase)) * 10;
-      ctx.beginPath();
-      ctx.arc(w / 2 - 20 + i * 20, dotY - bounce, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#40e0d0';
-      ctx.fill();
-    }
-  }
+    // Progress bar at bottom
+    const barY = h - 35;
+    const barWidth = w - 80;
+    const barHeight = 4;
+    const barX = 40;
 
-  /**
-   * Draw subtle screen edge glow
-   */
-  _drawScreenGlow(ctx, w, h) {
-    const glowWidth = 3;
-    ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
-    ctx.lineWidth = glowWidth;
-    ctx.strokeRect(glowWidth / 2, glowWidth / 2, w - glowWidth, h - glowWidth);
+    // Background track
+    ctx.fillStyle = 'rgba(64, 224, 208, 0.2)';
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barWidth, barHeight, 2);
+    ctx.fill();
+
+    // Filled progress
+    if (this._progress > 0) {
+      ctx.fillStyle = '#40e0d0';
+      ctx.shadowColor = '#40e0d0';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barWidth * this._progress, barHeight, 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
   }
 
   // ==================== CAROUSEL STATE ====================
@@ -494,10 +494,13 @@ export class HoloPhone {
     const currentGeom = geometries[currentIndex];
     if (!currentGeom) return;
 
-    // Bracket dimensions
-    const bracketWidth = 70;      // Width of each bracket zone
+    // Phone corner radius - matches the physical phone bezel curve
+    const phoneCornerRadius = 28;
+
+    // Bracket dimensions - wider for better touch targets
+    const bracketWidth = 80;      // Width of each bracket zone
     const bracketLineWidth = 4;   // Thickness of bracket lines
-    const bracketInset = 12;      // Padding from edge
+    const bracketInset = 4;       // Minimal padding from edge (brackets hug corners)
     // 1/3 for action (cancel/confirm), 2/3 for navigation (prev/next)
     const actionHeight = h / 3;
     const navHeight = (h * 2) / 3;
@@ -505,9 +508,9 @@ export class HoloPhone {
     // === LEFT BRACKET [ ===
     // Top 1/3: Cancel (✕)
     // Bottom 2/3: Previous (‹)
-    this._drawSplitBracket(ctx, bracketInset, 0, bracketWidth, h, 'left', bracketLineWidth);
+    this._drawSplitBracket(ctx, bracketInset, 0, bracketWidth, h, 'left', bracketLineWidth, phoneCornerRadius);
 
-    // Left bracket hit regions
+    // Left bracket hit regions - full edge to edge
     this._carouselHitRegions.push({
       name: 'cancel',
       x: 0, y: 0, w: bracketWidth + bracketInset, h: actionHeight
@@ -520,9 +523,9 @@ export class HoloPhone {
     // === RIGHT BRACKET ] ===
     // Top 1/3: Confirm (✓)
     // Bottom 2/3: Next (›)
-    this._drawSplitBracket(ctx, w - bracketInset - bracketWidth, 0, bracketWidth, h, 'right', bracketLineWidth);
+    this._drawSplitBracket(ctx, w - bracketInset - bracketWidth, 0, bracketWidth, h, 'right', bracketLineWidth, phoneCornerRadius);
 
-    // Right bracket hit regions
+    // Right bracket hit regions - full edge to edge
     this._carouselHitRegions.push({
       name: 'confirm',
       x: w - bracketWidth - bracketInset, y: 0, w: bracketWidth + bracketInset, h: actionHeight
@@ -533,8 +536,8 @@ export class HoloPhone {
     });
 
     // === CENTER AREA: Variants ===
-    const centerX = bracketWidth + bracketInset + 10;
-    const centerWidth = w - 2 * (bracketWidth + bracketInset + 10);
+    const centerX = bracketWidth + bracketInset + 4;
+    const centerWidth = w - 2 * (bracketWidth + bracketInset + 4);
 
     // Check if this is an SSS geometry (colored circles) or text-based
     const isSSS = currentGeom.sss === true;
@@ -553,19 +556,24 @@ export class HoloPhone {
    * Draw a split bracket with two functions
    * Top 1/3 has action icon (cancel/confirm), bottom 2/3 has navigation arrow
    * @param {string} side - 'left' or 'right'
+   * @param {number} cornerRadius - radius to match phone bezel
    */
-  _drawSplitBracket(ctx, x, y, width, height, side, lineWidth) {
+  _drawSplitBracket(ctx, x, y, width, height, side, lineWidth, cornerRadius = 32) {
     // 1/3 for action, 2/3 for navigation
     const actionHeight = height / 3;
     const navHeight = (height * 2) / 3;
     const splitY = actionHeight;
-    const cornerRadius = 8;
+
+    // Insets from canvas edge to bracket line (following phone curve)
+    const edgeInset = 4;
+    const topInset = edgeInset;
+    const bottomInset = edgeInset;
 
     // Colors
-    const bracketGlow = 'rgba(64, 224, 208, 0.3)';
-    const cancelColor = 'rgba(255, 100, 100, 0.7)';
-    const confirmColor = 'rgba(80, 200, 120, 0.7)';
-    const navColor = 'rgba(64, 224, 208, 0.8)';
+    const bracketGlow = 'rgba(64, 224, 208, 0.25)';
+    const cancelColor = 'rgba(255, 100, 100, 0.8)';
+    const confirmColor = 'rgba(80, 200, 120, 0.8)';
+    const navColor = 'rgba(64, 224, 208, 0.9)';
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -573,45 +581,45 @@ export class HoloPhone {
     if (side === 'left') {
       // Draw [ bracket shape - split at 1/3
 
-      // Top 1/3 bracket (Cancel zone) - opens right [
+      // Top 1/3 bracket (Cancel zone) - follows phone corner curve
       ctx.strokeStyle = cancelColor;
       ctx.lineWidth = lineWidth;
       ctx.beginPath();
-      ctx.moveTo(x + width, y + 8);
-      ctx.lineTo(x + cornerRadius, y + 8);
-      ctx.quadraticCurveTo(x, y + 8, x, y + 8 + cornerRadius);
-      ctx.lineTo(x, splitY - 4);
+      ctx.moveTo(x + width, topInset);
+      ctx.lineTo(x + cornerRadius, topInset);
+      ctx.quadraticCurveTo(x + edgeInset, topInset, x + edgeInset, topInset + cornerRadius);
+      ctx.lineTo(x + edgeInset, splitY - 6);
       ctx.stroke();
 
       // Bottom 2/3 bracket (Prev zone)
       ctx.strokeStyle = navColor;
       ctx.beginPath();
-      ctx.moveTo(x, splitY + 4);
-      ctx.lineTo(x, height - 8 - cornerRadius);
-      ctx.quadraticCurveTo(x, height - 8, x + cornerRadius, height - 8);
-      ctx.lineTo(x + width, height - 8);
+      ctx.moveTo(x + edgeInset, splitY + 6);
+      ctx.lineTo(x + edgeInset, height - bottomInset - cornerRadius);
+      ctx.quadraticCurveTo(x + edgeInset, height - bottomInset, x + cornerRadius, height - bottomInset);
+      ctx.lineTo(x + width, height - bottomInset);
       ctx.stroke();
 
-      // Horizontal divider line
+      // Horizontal divider line (subtle)
       ctx.strokeStyle = bracketGlow;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x, splitY);
-      ctx.lineTo(x + width - 10, splitY);
+      ctx.moveTo(x + edgeInset, splitY);
+      ctx.lineTo(x + width - 15, splitY);
       ctx.stroke();
 
       // Cancel icon (✕) in top 1/3
-      const cancelCenterX = x + width / 2;
-      const cancelCenterY = actionHeight / 2;
+      const cancelCenterX = x + width / 2 + 4;
+      const cancelCenterY = actionHeight / 2 + 2;
       ctx.fillStyle = '#ff6b6b';
-      ctx.font = 'bold 24px Arial';
+      ctx.font = 'bold 28px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✕', cancelCenterX, cancelCenterY);
 
-      // Prev arrow (‹) in bottom 2/3
-      const prevCenterX = x + width / 2;
-      const prevCenterY = splitY + navHeight / 2;
+      // Prev arrow (‹) in bottom 2/3 - mirror the top icon position
+      const prevCenterX = x + width / 2 + 4;
+      const prevCenterY = height - actionHeight / 2 - 2;  // Mirror from bottom
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 56px Arial';
       ctx.fillText('‹', prevCenterX, prevCenterY);
@@ -619,45 +627,45 @@ export class HoloPhone {
     } else {
       // Draw ] bracket shape - split at 1/3
 
-      // Top 1/3 bracket (Confirm zone) - opens left ]
+      // Top 1/3 bracket (Confirm zone) - follows phone corner curve
       ctx.strokeStyle = confirmColor;
       ctx.lineWidth = lineWidth;
       ctx.beginPath();
-      ctx.moveTo(x, y + 8);
-      ctx.lineTo(x + width - cornerRadius, y + 8);
-      ctx.quadraticCurveTo(x + width, y + 8, x + width, y + 8 + cornerRadius);
-      ctx.lineTo(x + width, splitY - 4);
+      ctx.moveTo(x, topInset);
+      ctx.lineTo(x + width - cornerRadius, topInset);
+      ctx.quadraticCurveTo(x + width - edgeInset, topInset, x + width - edgeInset, topInset + cornerRadius);
+      ctx.lineTo(x + width - edgeInset, splitY - 6);
       ctx.stroke();
 
       // Bottom 2/3 bracket (Next zone)
       ctx.strokeStyle = navColor;
       ctx.beginPath();
-      ctx.moveTo(x + width, splitY + 4);
-      ctx.lineTo(x + width, height - 8 - cornerRadius);
-      ctx.quadraticCurveTo(x + width, height - 8, x + width - cornerRadius, height - 8);
-      ctx.lineTo(x, height - 8);
+      ctx.moveTo(x + width - edgeInset, splitY + 6);
+      ctx.lineTo(x + width - edgeInset, height - bottomInset - cornerRadius);
+      ctx.quadraticCurveTo(x + width - edgeInset, height - bottomInset, x + width - cornerRadius, height - bottomInset);
+      ctx.lineTo(x, height - bottomInset);
       ctx.stroke();
 
-      // Horizontal divider line
+      // Horizontal divider line (subtle)
       ctx.strokeStyle = bracketGlow;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x + 10, splitY);
-      ctx.lineTo(x + width, splitY);
+      ctx.moveTo(x + 15, splitY);
+      ctx.lineTo(x + width - edgeInset, splitY);
       ctx.stroke();
 
       // Confirm icon (✓) in top 1/3
-      const confirmCenterX = x + width / 2;
-      const confirmCenterY = actionHeight / 2;
+      const confirmCenterX = x + width / 2 - 4;
+      const confirmCenterY = actionHeight / 2 + 2;
       ctx.fillStyle = '#50c878';
-      ctx.font = 'bold 24px Arial';
+      ctx.font = 'bold 28px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✓', confirmCenterX, confirmCenterY);
 
-      // Next arrow (›) in bottom 2/3
-      const nextCenterX = x + width / 2;
-      const nextCenterY = splitY + navHeight / 2;
+      // Next arrow (›) in bottom 2/3 - mirror the top icon position
+      const nextCenterX = x + width / 2 - 4;
+      const nextCenterY = height - actionHeight / 2 - 2;  // Mirror from bottom
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 56px Arial';
       ctx.fillText('›', nextCenterX, nextCenterY);
@@ -666,15 +674,16 @@ export class HoloPhone {
 
   /**
    * Draw SSS variant gradient slider - colored gemstone spectrum
-   * A horizontal gradient bar with draggable knob that snaps to gem colors
+   * Centered layout with proportional knob
    */
   _drawSSSVariants(ctx, variants, currentIdx, y, height, canvasWidth, centerX, centerWidth) {
-    const sliderPadding = 20;
+    // Slider centered vertically, using most of horizontal space
+    const sliderPadding = 8;
     const sliderX = centerX + sliderPadding;
     const sliderW = centerWidth - sliderPadding * 2;
-    const sliderY = y + height / 2;
-    const sliderH = 20;
-    const knobRadius = 28;
+    const sliderH = 14;  // Slim track
+    const sliderY = y + height * 0.5;  // Center vertically
+    const knobRadius = 18;  // Proportional knob
 
     // Create gradient from all variant colors
     const gradient = ctx.createLinearGradient(sliderX, 0, sliderX + sliderW, 0);
@@ -690,8 +699,8 @@ export class HoloPhone {
     ctx.roundRect(sliderX, sliderY - sliderH / 2, sliderW, sliderH, sliderH / 2);
     ctx.fill();
 
-    // Track border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    // Track border - subtle white outline
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
@@ -720,9 +729,9 @@ export class HoloPhone {
       knobX - knobRadius * 0.3, sliderY - knobRadius * 0.3, 0,
       knobX, sliderY, knobRadius
     );
-    knobGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
-    knobGradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)');
-    knobGradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+    knobGradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+    knobGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+    knobGradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
     ctx.fillStyle = knobGradient;
     ctx.beginPath();
     ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
@@ -730,86 +739,76 @@ export class HoloPhone {
 
     // Knob border
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Draw small tick marks at each variant position
-    variants.forEach((variant, i) => {
-      const tickX = sliderX + (i / (variants.length - 1)) * sliderW;
-      const tickColor = HoloPhone.SSS_COLORS[variant.preset] || HoloPhone.SSS_COLORS['default'];
-
-      // Small circle marker at each stop
-      ctx.fillStyle = i === currentIdx ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
-      ctx.beginPath();
-      ctx.arc(tickX, sliderY + sliderH / 2 + 12, i === currentIdx ? 6 : 4, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    // Single hit region for entire slider (drag anywhere)
+    // Hit region covers the center area for easy interaction
     this._carouselHitRegions.push({
       name: 'sss-slider',
       x: sliderX - knobRadius,
-      y: y,
+      y: sliderY - knobRadius - 15,
       w: sliderW + knobRadius * 2,
-      h: height,
+      h: knobRadius * 2 + 30,
       extra: { sliderX, sliderW, variantCount: variants.length }
     });
   }
 
   /**
-   * Draw text-based variant pills - ACCESSIBILITY OPTIMIZED
-   * Centered in available space between brackets
+   * Draw text-based variant pills - compact layout
+   * Positioned at 38% height to stay clear of arrows
    */
   _drawTextVariants(ctx, variants, currentIdx, y, height, canvasWidth, centerX, centerWidth) {
-    const pillHeight = 50;      // Large pills for fat fingers
-    const pillPadding = 24;
-    const spacing = 14;
+    const pillHeight = 38;  // Smaller pills
+    const pillPadding = 18;
+    const spacing = 10;
 
-    // Measure all pills with larger font (24px)
-    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+    // Measure all pills
+    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
     const pillWidths = variants.map(v => ctx.measureText(v.label || v.name).width + pillPadding * 2);
     const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (variants.length - 1) * spacing;
     let startX = centerX + (centerWidth - totalWidth) / 2;
 
+    // Position pills at 38% height
+    const pillY = y + height * 0.38 - pillHeight / 2;
+
     variants.forEach((variant, i) => {
       const pillW = pillWidths[i];
       const pillX = startX;
-      const pillY = y + (height - pillHeight) / 2;
       const isActive = i === currentIdx;
 
-      // High contrast pill background
-      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.55)' : 'rgba(64, 224, 208, 0.25)';
+      // Pill background
+      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.6)' : 'rgba(64, 224, 208, 0.2)';
       ctx.beginPath();
       ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
       ctx.fill();
 
-      // Thick visible border
+      // Border
       if (isActive) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.stroke();
       } else {
-        ctx.strokeStyle = 'rgba(64, 224, 208, 0.6)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
+        ctx.lineWidth = 1;
         ctx.stroke();
       }
 
-      // Large high-contrast text (24px)
-      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.9)';
-      ctx.font = isActive ? 'bold 24px "Segoe UI", Arial, sans-serif' : '24px "Segoe UI", Arial, sans-serif';
+      // Text
+      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)';
+      ctx.font = isActive ? 'bold 20px "Segoe UI", Arial, sans-serif' : '20px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(variant.label || variant.name, pillX + pillW / 2, pillY + pillHeight / 2);
 
-      // Full height hit region
+      // Hit region - just around the pill
       this._carouselHitRegions.push({
         name: 'variant',
         x: pillX - spacing / 2,
-        y: y,
+        y: pillY - 10,
         w: pillW + spacing,
-        h: height,
+        h: pillHeight + 20,
         extra: { index: i }
       });
 
@@ -819,21 +818,19 @@ export class HoloPhone {
 
   /**
    * Draw moon phase row with variant pills and phase slider
-   * Pills centered horizontally, slider appears BELOW pills when Phase is active
+   * Compact layout: pills at 30% height, slider at 65% height
    */
   _drawMoonPhaseRow(ctx, variants, currentIdx, phase, y, height, canvasWidth, centerX, centerWidth) {
-    const pillHeight = 50;
-    const pillPadding = 20;
-    const spacing = 12;
+    const pillHeight = 40;  // Smaller pills
+    const pillPadding = 16;
+    const spacing = 10;
     const phaseVariantActive = variants[currentIdx]?.name === 'phase';
 
-    // Layout: pills on top row, slider on bottom row (if Phase active)
-    const sliderRowHeight = phaseVariantActive ? 50 : 0;
-    const pillRowHeight = height - sliderRowHeight;
-    const pillY = y + (pillRowHeight - pillHeight) / 2;
+    // Pills positioned at 30% of height
+    const pillY = y + height * 0.30 - pillHeight / 2;
 
-    // Measure all pills with larger font
-    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+    // Measure all pills
+    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
     const pillWidths = variants.map(v => ctx.measureText(v.label || v.name).width + pillPadding * 2);
     const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (variants.length - 1) * spacing;
     let startX = centerX + (centerWidth - totalWidth) / 2;
@@ -844,51 +841,50 @@ export class HoloPhone {
       const pillX = startX;
       const isActive = i === currentIdx;
 
-      // High contrast pill background
-      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.55)' : 'rgba(64, 224, 208, 0.25)';
+      // Pill background
+      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.6)' : 'rgba(64, 224, 208, 0.2)';
       ctx.beginPath();
       ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
       ctx.fill();
 
       if (isActive) {
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.stroke();
       } else {
         ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1;
         ctx.stroke();
       }
 
-      // Large high-contrast text
-      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.9)';
-      ctx.font = isActive ? 'bold 24px "Segoe UI", Arial, sans-serif' : '24px "Segoe UI", Arial, sans-serif';
+      // Text
+      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)';
+      ctx.font = isActive ? 'bold 20px "Segoe UI", Arial, sans-serif' : '20px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(label, pillX + pillW / 2, pillY + pillHeight / 2);
 
-      // Hit region for pill row only
+      // Hit region for pills
       this._carouselHitRegions.push({
         name: 'variant',
         x: pillX - spacing / 2,
-        y: y,
+        y: pillY - 10,
         w: pillW + spacing,
-        h: pillRowHeight,
+        h: pillHeight + 20,
         extra: { index: i }
       });
 
       startX += pillW + spacing;
     });
 
-    // Bottom row: Phase slider (only when Phase variant is active)
+    // Phase slider (only when Phase variant is active)
     if (phaseVariantActive && phase !== undefined) {
-      const sliderRowY = y + pillRowHeight;
-      const sliderPadding = 30;
+      const sliderPadding = 15;
       const sliderX = centerX + sliderPadding;
       const sliderW = centerWidth - sliderPadding * 2;
-      const sliderY = sliderRowY + sliderRowHeight / 2;
-      const sliderH = 12;
-      const knobRadius = 24;  // Larger knob for easier touch
+      const sliderY = y + height * 0.65;  // Position at 65% height
+      const sliderH = 12;  // Slimmer track
+      const knobRadius = 20;  // Smaller knob
 
       // Slider track
       ctx.fillStyle = 'rgba(64, 224, 208, 0.3)';
@@ -897,13 +893,13 @@ export class HoloPhone {
       ctx.fill();
 
       // Track border
-      ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(64, 224, 208, 0.6)';
+      ctx.lineWidth = 1;
       ctx.stroke();
 
       // Slider fill
       const fillW = phase * sliderW;
-      ctx.fillStyle = 'rgba(64, 224, 208, 0.7)';
+      ctx.fillStyle = 'rgba(64, 224, 208, 0.8)';
       ctx.beginPath();
       ctx.roundRect(sliderX, sliderY - sliderH / 2, fillW, sliderH, sliderH / 2);
       ctx.fill();
@@ -917,22 +913,22 @@ export class HoloPhone {
 
       // Knob border
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Knob inner highlight
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      // Knob highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.beginPath();
-      ctx.arc(knobX - 3, sliderY - 3, knobRadius * 0.4, 0, Math.PI * 2);
+      ctx.arc(knobX - 3, sliderY - 3, knobRadius * 0.35, 0, Math.PI * 2);
       ctx.fill();
 
-      // Slider hit region (bottom row only)
+      // Slider hit region
       this._carouselHitRegions.push({
         name: 'phase-slider',
         x: sliderX - knobRadius,
-        y: sliderRowY,
+        y: sliderY - knobRadius - 10,
         w: sliderW + knobRadius * 2,
-        h: sliderRowHeight,
+        h: knobRadius * 2 + 20,
         extra: { sliderX, sliderW }
       });
     }
@@ -1052,10 +1048,10 @@ export class HoloPhone {
 
     overlay.innerHTML = `
       <div style="color: #00ffff; font-weight: bold; margin-bottom: 8px;">Phone UV Calibration</div>
-      <div style="margin-bottom: 8px;">Arrow keys: adjust | Shift: big steps</div>
+      <div style="margin-bottom: 8px;">↑↓: ±0.01 | ←→: ±0.001 | Shift: ×5</div>
       ${controls.map(c => {
         const active = this._activeControl === c.key;
-        return `<div style="color: ${active ? '#ffff00' : '#ffffff'}">${c.label}: ${c.val.toFixed(2)}${active ? ' ◄' : ''}</div>`;
+        return `<div style="color: ${active ? '#ffff00' : '#ffffff'}">${c.label}: ${c.val.toFixed(3)}${active ? ' ◄' : ''}</div>`;
       }).join('')}
       <div style="color: #00ffff; margin-top: 8px;">C: copy values to console</div>
     `;
@@ -1068,7 +1064,10 @@ export class HoloPhone {
     this._keyHandler = (e) => {
       if (!this._gridMode) return;
 
-      const step = e.shiftKey ? 0.05 : 0.01;
+      // Up/Down = 0.01, Left/Right = 0.001, Shift = 5x multiplier
+      const multiplier = e.shiftKey ? 5 : 1;
+      const coarseStep = 0.01 * multiplier;
+      const fineStep = 0.001 * multiplier;
       let changed = false;
 
       switch (e.key) {
@@ -1076,19 +1075,25 @@ export class HoloPhone {
         case '2': this._activeControl = 'maxY'; changed = true; break;
         case '3': this._activeControl = 'minX'; changed = true; break;
         case '4': this._activeControl = 'maxX'; changed = true; break;
-        case 'ArrowLeft':
         case 'ArrowDown':
-          this._adjustUV(-step);
+          this._adjustUV(-coarseStep);
+          changed = true;
+          break;
+        case 'ArrowUp':
+          this._adjustUV(coarseStep);
+          changed = true;
+          break;
+        case 'ArrowLeft':
+          this._adjustUV(-fineStep);
           changed = true;
           break;
         case 'ArrowRight':
-        case 'ArrowUp':
-          this._adjustUV(step);
+          this._adjustUV(fineStep);
           changed = true;
           break;
         case 'c':
         case 'C':
-          const uvText = `this._uvMin = { x: ${this._uvMin.x.toFixed(2)}, y: ${this._uvMin.y.toFixed(2)} };\nthis._uvMax = { x: ${this._uvMax.x.toFixed(2)}, y: ${this._uvMax.y.toFixed(2)} };`;
+          const uvText = `this._uvMin = { x: ${this._uvMin.x.toFixed(3)}, y: ${this._uvMin.y.toFixed(3)} };\nthis._uvMax = { x: ${this._uvMax.x.toFixed(3)}, y: ${this._uvMax.y.toFixed(3)} };`;
           navigator.clipboard.writeText(uvText).then(() => {
             console.log('Copied to clipboard:\n' + uvText);
           }).catch(err => {
@@ -1105,7 +1110,7 @@ export class HoloPhone {
     };
 
     window.addEventListener('keydown', this._keyHandler);
-    console.log('Grid controls active: 1-4 select edge, arrows adjust, C to copy');
+    console.log('Grid controls active: 1-4 select edge, ↑↓ ±0.01, ←→ ±0.001, Shift ×5, C to copy');
   }
 
   /**
@@ -1288,7 +1293,21 @@ export class HoloPhone {
   setState(state) {
     if (this._gridMode) return;
     this._screenState = state;
+    if (state !== 'speaking') {
+      this._progress = 0;  // Reset progress when leaving speaking state
+    }
     this._renderScreen();
+  }
+
+  /**
+   * Set the TTS progress (0-1)
+   * @param {number} progress - Progress value 0 to 1
+   */
+  setProgress(progress) {
+    this._progress = Math.max(0, Math.min(1, progress));
+    if (this._screenState === 'speaking') {
+      this._renderScreen();
+    }
   }
 
   /**

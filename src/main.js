@@ -238,15 +238,24 @@ class EmoAssistant {
       }
     };
 
-    // Wire up TTS progress tracking
+    // Wire up TTS progress tracking - update 3D phone progress bar
     this.tts.onProgress = (progress) => {
-      this.updateResponseProgress(progress);
+      if (this.holoPhone3D) {
+        this.holoPhone3D.setProgress(progress);
+      }
     };
 
     // Wire up CC-style chunk display - shows 2-3 lines, advances when TTS catches up
     this.tts.onChunkChange = (chunkText) => {
-      if (this.state === 'speaking' && this.elements.screenText) {
-        this.elements.screenText.textContent = chunkText;
+      if (this.state === 'speaking') {
+        // Update 3D phone display with current chunk
+        if (this.holoPhone3D) {
+          this.holoPhone3D.setText(chunkText);
+        }
+        // Also update CSS phone as fallback
+        if (this.elements.screenText) {
+          this.elements.screenText.textContent = chunkText;
+        }
       }
     };
 
@@ -593,7 +602,6 @@ class EmoAssistant {
       // TTS will handle chunk display via onChunkChange callback
       // Just set speaking state, first chunk shown by TTS.speak()
       this.setScreen('', 'speaking');
-      this._fullResponseText = text;  // Store for final display
 
       // Apply morph directive if present
       if (morph && this.mascot.morphTo) {
@@ -642,16 +650,11 @@ class EmoAssistant {
         this.mascot.setCameraPreset(camera);
       }
 
-      // Show progress bar and speak the response
-      this.showResponseProgress();
+      // Speak the response (progress bar is on 3D phone, updated via onProgress callback)
       await this.tts.speak(text);
-      this.hideResponseProgress();
 
-      // Ensure full text is shown after TTS completes
-      if (this._fullResponseText) {
-        this.setScreen(this._fullResponseText, '');
-        this._fullResponseText = null;
-      }
+      // Keep showing the last chunk of text (don't dump full text)
+      // The phone will continue displaying whatever was last set via onChunkChange
 
       // Return to idle but keep emotional state for a bit
       this.setState('idle');
@@ -998,8 +1001,10 @@ class EmoAssistant {
       this.tts.stop();
     }
 
-    // Hide progress bar
-    this.hideResponseProgress();
+    // Reset 3D phone progress
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setProgress(0);
+    }
 
     // Clear any pending timeouts
     if (this._processingTimeout) {
