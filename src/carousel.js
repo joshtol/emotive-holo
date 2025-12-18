@@ -1,54 +1,74 @@
 /**
  * Geometry Carousel
- * Approachable futurism redesign - soft glass panel at bottom
+ * Renders on the 3D phone screen - delegates drawing to HoloPhone
  * The live mascot morphs in place, no preview thumbnails needed
  */
 
 import { animateMoonPhase } from '@joshtol/emotive-engine/3d';
 
 export class GeometryCarousel {
-  constructor(mascot, container) {
+  constructor(mascot, container, holoPhone) {
     this.mascot = mascot;
     this.container = container;
+    this.holoPhone = holoPhone;
 
     this.isVisible = false;
     this.currentIndex = 0;
     this.currentVariantIndex = 0;
 
     this.onSelect = null;
+    this.onStateChange = null; // Callback for state changes (show/hide)
+    this.onTitleChange = null; // Callback for floating title updates
+
+    // Moon phase slider value (0-1 for phone canvas)
+    this._phaseSliderValue = 0.5; // Default to full moon
+
+    // Cherry-picked gestures to play after geometry selection
+    this.selectionGestures = [
+      'orbit', 'lean', 'reach', 'bounce', 'sway',
+      'spin', 'breathe', 'pulse', 'shimmer'
+    ];
 
     // SSS preset variants shared by crystal-type geometries
+    // Order: Quartz (white) -> Ruby (red) -> Citrine (yellow) -> Emerald (green) -> Sapphire (blue) -> Amethyst (purple)
     this.sssVariants = [
-      { name: 'default', label: 'Quartz' },
-      { name: 'emerald', label: 'Emerald' },
-      { name: 'ruby', label: 'Ruby' },
-      { name: 'sapphire', label: 'Sapphire' },
-      { name: 'amethyst', label: 'Amethyst' }
+      { name: 'default', label: 'Quartz', preset: 'default' },
+      { name: 'ruby', label: 'Ruby', preset: 'ruby' },
+      { name: 'citrine', label: 'Citrine', preset: 'citrine' },
+      { name: 'emerald', label: 'Emerald', preset: 'emerald' },
+      { name: 'sapphire', label: 'Sapphire', preset: 'sapphire' },
+      { name: 'amethyst', label: 'Amethyst', preset: 'amethyst' }
     ];
 
     // Available geometries with variants
     // These must match THREE_GEOMETRIES in emotive-engine
+    // Order: Crystal, Moon, Star, Sun, Rough, Heart
     this.geometries = [
       {
-        name: 'crystal',
-        label: 'Crystal',
+        id: 'crystal',
+        name: 'Crystal',
         variants: this.sssVariants,
-        usesSSS: true
+        sss: true
       },
       {
-        name: 'moon',
-        label: 'Moon',
+        id: 'moon',
+        name: 'Moon',
         variants: [
-          { name: 'full', label: 'Full' },
-          { name: 'waxing-crescent', label: 'Crescent' },
-          { name: 'first-quarter', label: 'Half' },
-          { name: 'blood', label: 'Blood' },
-          { name: 'eclipse', label: 'Eclipse' }
-        ]
+          { name: 'phase', label: 'Phase' },
+          { name: 'blood', label: 'Eclipse' },
+          { name: 'partial', label: 'Partial' }
+        ],
+        hasPhaseSlider: true
       },
       {
-        name: 'sun',
-        label: 'Sun',
+        id: 'star',
+        name: 'Star',
+        variants: this.sssVariants,
+        sss: true
+      },
+      {
+        id: 'sun',
+        name: 'Sun',
         variants: [
           { name: 'default', label: 'Normal' },
           { name: 'annular', label: 'Annular' },
@@ -56,114 +76,24 @@ export class GeometryCarousel {
         ]
       },
       {
-        name: 'heart',
-        label: 'Heart',
+        id: 'rough',
+        name: 'Rough',
         variants: this.sssVariants,
-        usesSSS: true
+        sss: true
       },
       {
-        name: 'star',
-        label: 'Star',
+        id: 'heart',
+        name: 'Heart',
         variants: this.sssVariants,
-        usesSSS: true
-      },
-      {
-        name: 'rough',
-        label: 'Rough',
-        variants: this.sssVariants,
-        usesSSS: true
+        sss: true
       }
     ];
 
-    this.setupDOM();
     this.setupEventListeners();
   }
 
-  setupDOM() {
-    // Get carousel container
-    this.carouselEl = document.getElementById('carousel');
-
-    // Create the new panel structure
-    this.panel = document.createElement('div');
-    this.panel.className = 'carousel-panel';
-
-    // Navigation row: [< Arrow] [Title] [Arrow >]
-    this.navRow = document.createElement('div');
-    this.navRow.className = 'carousel-nav';
-
-    this.leftArrow = document.createElement('button');
-    this.leftArrow.className = 'carousel-arrow';
-    this.leftArrow.innerHTML = '&#8249;'; // ‹
-    this.leftArrow.setAttribute('aria-label', 'Previous geometry');
-
-    this.titleBlock = document.createElement('div');
-    this.titleBlock.className = 'carousel-title';
-
-    this.titleEl = document.createElement('h2');
-    this.titleEl.textContent = 'Crystal';
-
-    this.subtitleEl = document.createElement('div');
-    this.subtitleEl.className = 'subtitle';
-    this.subtitleEl.textContent = 'Quartz';
-
-    this.titleBlock.appendChild(this.titleEl);
-    this.titleBlock.appendChild(this.subtitleEl);
-
-    this.rightArrow = document.createElement('button');
-    this.rightArrow.className = 'carousel-arrow';
-    this.rightArrow.innerHTML = '&#8250;'; // ›
-    this.rightArrow.setAttribute('aria-label', 'Next geometry');
-
-    this.navRow.appendChild(this.leftArrow);
-    this.navRow.appendChild(this.titleBlock);
-    this.navRow.appendChild(this.rightArrow);
-
-    // Variant dots (horizontal)
-    this.variantDots = document.createElement('div');
-    this.variantDots.className = 'carousel-variants';
-
-    // Action buttons
-    this.actionsRow = document.createElement('div');
-    this.actionsRow.className = 'carousel-actions';
-
-    this.selectBtn = document.createElement('button');
-    this.selectBtn.className = 'carousel-btn primary';
-    this.selectBtn.textContent = 'Select';
-
-    this.cancelBtn = document.createElement('button');
-    this.cancelBtn.className = 'carousel-btn secondary';
-    this.cancelBtn.textContent = 'Cancel';
-
-    this.actionsRow.appendChild(this.selectBtn);
-    this.actionsRow.appendChild(this.cancelBtn);
-
-    // Assemble panel
-    this.panel.appendChild(this.navRow);
-    this.panel.appendChild(this.variantDots);
-    this.panel.appendChild(this.actionsRow);
-
-    // Close button (top right)
-    this.closeBtn = document.createElement('button');
-    this.closeBtn.className = 'carousel-close';
-    this.closeBtn.innerHTML = '&times;';
-    this.closeBtn.setAttribute('aria-label', 'Close');
-
-    // Add to carousel container
-    this.carouselEl.appendChild(this.panel);
-    this.carouselEl.appendChild(this.closeBtn);
-  }
-
   setupEventListeners() {
-    // Arrow navigation
-    this.leftArrow.addEventListener('click', () => this.navigate(-1));
-    this.rightArrow.addEventListener('click', () => this.navigate(1));
-
-    // Select/Cancel buttons
-    this.selectBtn.addEventListener('click', () => this.confirmSelection());
-    this.cancelBtn.addEventListener('click', () => this.hide());
-    this.closeBtn.addEventListener('click', () => this.hide());
-
-    // Keyboard navigation
+    // Keyboard navigation only - touch handled via main.js routing to phone
     this.keyHandler = (e) => {
       if (!this.isVisible) return;
 
@@ -196,48 +126,49 @@ export class GeometryCarousel {
     };
 
     document.addEventListener('keydown', this.keyHandler);
-
-    // Touch swipe support
-    this.setupTouchSwipe();
   }
 
-  setupTouchSwipe() {
-    let touchStartX = 0;
-    let touchStartY = 0;
+  /**
+   * Push current carousel state to phone for rendering
+   * Also updates the floating holographic title
+   */
+  _updatePhoneCarousel() {
+    if (!this.holoPhone) return;
 
-    this.panel.addEventListener('touchstart', (e) => {
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
-    }, { passive: true });
+    const current = this.geometries[this.currentIndex];
+    const currentVariant = current.variants[this.currentVariantIndex];
 
-    this.panel.addEventListener('touchend', (e) => {
-      const touchEndX = e.changedTouches[0].clientX;
-      const touchEndY = e.changedTouches[0].clientY;
-      const deltaX = touchEndX - touchStartX;
-      const deltaY = touchEndY - touchStartY;
+    this.holoPhone.setCarouselData({
+      geometries: this.geometries,
+      currentIndex: this.currentIndex,
+      currentVariantIndex: this.currentVariantIndex,
+      variants: current.variants,
+      phase: this._phaseSliderValue
+    });
 
-      // Horizontal swipe (more horizontal than vertical)
-      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-        if (deltaX > 0) {
-          this.navigate(-1); // Swipe right = previous
-        } else {
-          this.navigate(1); // Swipe left = next
-        }
+    // Update floating holographic title
+    // For Moon Phase variant, show the actual phase name from the slider
+    if (this.onTitleChange) {
+      let variantLabel = currentVariant?.label || currentVariant?.name || '';
+
+      // If we're on Moon geometry with Phase variant active, show the actual phase
+      if (current.id === 'moon' && currentVariant?.name === 'phase' && this._moonPhaseLabel) {
+        variantLabel = this._moonPhaseLabel;
       }
-      // Vertical swipe for variants
-      else if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 30) {
-        if (deltaY > 0) {
-          this.navigateVariant(-1); // Swipe down = previous variant
-        } else {
-          this.navigateVariant(1); // Swipe up = next variant
-        }
-      }
-    }, { passive: true });
+
+      this.onTitleChange({
+        name: current.name,
+        variant: variantLabel
+      });
+    }
   }
 
   show() {
     this.isVisible = true;
-    this.carouselEl.classList.remove('hidden');
+
+    // Store original state for cancel restoration
+    this._originalIndex = this.currentIndex;
+    this._originalVariantIndex = this.currentVariantIndex;
 
     // Add class to dim the mascot
     document.getElementById('hologram-container').classList.add('carousel-active');
@@ -245,18 +176,124 @@ export class GeometryCarousel {
     // Float mascot up during selection
     this._animateMascotFloat(true);
 
-    this.updateDisplay();
+    // Notify state change
+    if (this.onStateChange) {
+      this.onStateChange('carousel');
+    }
+
+    // Update phone display
+    this._updatePhoneCarousel();
   }
 
-  hide() {
+  hide(triggerGesture = false) {
     this.isVisible = false;
-    this.carouselEl.classList.add('hidden');
 
     // Remove dim class
     document.getElementById('hologram-container').classList.remove('carousel-active');
 
+    // Play gesture as mascot starts moving back down
+    if (triggerGesture) {
+      this._playRandomSelectionGesture();
+    }
+
     // Float mascot back down to normal position
     this._animateMascotFloat(false);
+
+    // Clear phone carousel state
+    if (this.holoPhone) {
+      this.holoPhone.setCarouselData(null);
+    }
+
+    // Notify state change
+    if (this.onStateChange) {
+      this.onStateChange('idle');
+    }
+  }
+
+  /**
+   * Handle touch events from phone screen
+   * @param {string} hitName - Hit region name
+   * @param {Object} extra - Extra data from hit region
+   */
+  handlePhoneTouch(hitName, extra) {
+    switch (hitName) {
+      case 'prev-geometry':
+        this.navigate(-1);
+        break;
+      case 'next-geometry':
+        this.navigate(1);
+        break;
+      case 'confirm':
+        this.confirmSelection();
+        break;
+      case 'cancel':
+        // Restore original geometry/variant before closing
+        this.currentIndex = this._originalIndex;
+        this.currentVariantIndex = this._originalVariantIndex;
+        this.applyCurrentGeometry();
+
+        // Clear the floating title
+        if (this.onTitleChange) {
+          this.onTitleChange(null);
+        }
+
+        // Close carousel without gesture
+        this.hide(false);
+        break;
+      case 'variant':
+        if (extra?.index !== undefined) {
+          this.selectVariant(extra.index);
+        }
+        break;
+      case 'phase-slider':
+        // Slider drag handled separately via handlePhaseSliderDrag
+        break;
+      case 'sss-slider':
+        // SSS slider drag handled separately via handleSSSSliderDrag
+        break;
+    }
+  }
+
+  /**
+   * Handle SSS slider drag - snaps to nearest gem variant
+   * @param {number} normalizedX - 0-1 position within slider
+   * @param {number} variantCount - Number of variants
+   */
+  handleSSSSliderDrag(normalizedX, variantCount) {
+    // Snap to nearest variant
+    const index = Math.round(normalizedX * (variantCount - 1));
+    const clampedIndex = Math.max(0, Math.min(variantCount - 1, index));
+
+    if (clampedIndex !== this.currentVariantIndex) {
+      this.selectVariant(clampedIndex);
+    }
+  }
+
+  /**
+   * Handle phase slider drag
+   * @param {number} normalizedX - 0-1 position within slider
+   */
+  handlePhaseSliderDrag(normalizedX) {
+    this._phaseSliderValue = Math.max(0, Math.min(1, normalizedX));
+
+    // Map 0-1 to 0-100 for the phase calculation
+    const sliderValue = Math.round(this._phaseSliderValue * 100);
+    this.setMoonPhase(sliderValue);
+
+    // Update phone display
+    this._updatePhoneCarousel();
+  }
+
+  /**
+   * Select a variant by index
+   */
+  selectVariant(index) {
+    const current = this.geometries[this.currentIndex];
+    if (index >= 0 && index < current.variants.length) {
+      this.currentVariantIndex = index;
+      this._updatePhoneCarousel();
+      this.applyCurrentVariant();
+    }
   }
 
   /**
@@ -304,10 +341,22 @@ export class GeometryCarousel {
     animate();
   }
 
+  /**
+   * Play a random gesture from the selection gestures list
+   */
+  _playRandomSelectionGesture() {
+    if (!this.mascot?.feel) return;
+
+    const gesture = this.selectionGestures[
+      Math.floor(Math.random() * this.selectionGestures.length)
+    ];
+    this.mascot.feel(gesture);
+  }
+
   navigate(direction) {
-    this.currentIndex = (this.currentIndex + direction + this.geometries.length) % this.geometries.length;
+    this.currentIndex = (this.currentIndex + this.geometries.length + direction) % this.geometries.length;
     this.currentVariantIndex = 0; // Reset variant when changing geometry
-    this.updateDisplay();
+    this._updatePhoneCarousel();
     this.applyCurrentGeometry();
   }
 
@@ -317,46 +366,9 @@ export class GeometryCarousel {
 
     if (variantCount <= 1) return;
 
-    this.currentVariantIndex = (this.currentVariantIndex + direction + variantCount) % variantCount;
-    this.updateDisplay();
+    this.currentVariantIndex = (this.currentVariantIndex + variantCount + direction) % variantCount;
+    this._updatePhoneCarousel();
     this.applyCurrentVariant();
-  }
-
-  updateDisplay() {
-    const current = this.geometries[this.currentIndex];
-    const variant = current.variants[this.currentVariantIndex];
-
-    // Update title and subtitle
-    this.titleEl.textContent = current.label;
-    this.subtitleEl.textContent = variant.label;
-
-    // Update variant dots
-    this.updateVariantDots(current.variants);
-  }
-
-  updateVariantDots(variants) {
-    this.variantDots.innerHTML = '';
-
-    // Only show variants if more than 1
-    if (variants.length <= 1) {
-      this.variantDots.style.display = 'none';
-      return;
-    }
-
-    this.variantDots.style.display = 'flex';
-
-    // Use pill buttons for better UX
-    variants.forEach((variant, index) => {
-      const pill = document.createElement('button');
-      pill.className = 'variant-pill' + (index === this.currentVariantIndex ? ' active' : '');
-      pill.textContent = variant.label;
-      pill.addEventListener('click', () => {
-        this.currentVariantIndex = index;
-        this.updateDisplay();
-        this.applyCurrentVariant();
-      });
-      this.variantDots.appendChild(pill);
-    });
   }
 
   applyCurrentGeometry() {
@@ -364,7 +376,7 @@ export class GeometryCarousel {
 
     // Morph to new geometry
     if (this.mascot && this.mascot.morphTo) {
-      this.mascot.morphTo(current.name);
+      this.mascot.morphTo(current.id);
 
       // Apply the default variant after a short delay to let the morph complete
       setTimeout(() => {
@@ -378,11 +390,11 @@ export class GeometryCarousel {
     const variant = current.variants[this.currentVariantIndex];
 
     // Apply variant-specific settings
-    if (current.name === 'moon') {
+    if (current.id === 'moon') {
       this.applyMoonVariant(variant.name);
-    } else if (current.name === 'sun') {
+    } else if (current.id === 'sun') {
       this.applySunVariant(variant.name);
-    } else if (current.usesSSS) {
+    } else if (current.sss) {
       // All crystal-type geometries use SSS presets
       this.applySSSVariant(variant.name);
     }
@@ -391,30 +403,20 @@ export class GeometryCarousel {
   applyMoonVariant(variant) {
     if (!this.mascot.core3D) return;
 
-    // Get the moon mesh material for animateMoonPhase
-    const moonMesh = this.mascot.core3D.mesh;
-    const material = moonMesh?.material;
+    // Get the moon material - customMaterial is where moon phases are controlled
+    const material = this.mascot.core3D.customMaterial;
 
     // Turn off eclipse first for non-eclipse variants
-    if (variant !== 'blood' && variant !== 'eclipse') {
+    if (variant !== 'blood' && variant !== 'partial') {
       this.mascot.core3D.setMoonEclipse?.('off');
     }
 
     switch (variant) {
-      case 'full':
+      case 'phase':
+        // Phase variant - use current phase from slider
         if (material?.uniforms) {
-          animateMoonPhase(material, 'full', 1000);
-        }
-        break;
-      case 'waxing-crescent':
-        // Use the correct phase name from Moon.js
-        if (material?.uniforms) {
-          animateMoonPhase(material, 'waxing-crescent', 1000);
-        }
-        break;
-      case 'first-quarter':
-        if (material?.uniforms) {
-          animateMoonPhase(material, 'first-quarter', 1000);
+          const phaseName = this._moonPhaseName ?? 'full';
+          animateMoonPhase(material, phaseName, 500);
         }
         break;
       case 'blood':
@@ -424,13 +426,41 @@ export class GeometryCarousel {
         }
         this.mascot.core3D.setMoonEclipse?.('total');
         break;
-      case 'eclipse':
+      case 'partial':
         // Full moon with partial eclipse
         if (material?.uniforms) {
           animateMoonPhase(material, 'full', 500);
         }
         this.mascot.core3D.setMoonEclipse?.('partial');
         break;
+    }
+  }
+
+  /**
+   * Set moon phase from slider (0-100 mapped to 8 named phases)
+   * @param {number} sliderValue - 0-100 slider value
+   */
+  setMoonPhase(sliderValue) {
+    // Map slider 0-100 to the 8 named moon phases
+    const phases = [
+      { max: 7, name: 'new', label: 'New Moon' },
+      { max: 21, name: 'waxing-crescent', label: 'Waxing Crescent' },
+      { max: 35, name: 'first-quarter', label: 'First Quarter' },
+      { max: 46, name: 'waxing-gibbous', label: 'Waxing Gibbous' },
+      { max: 54, name: 'full', label: 'Full Moon' },
+      { max: 64, name: 'waning-gibbous', label: 'Waning Gibbous' },
+      { max: 78, name: 'last-quarter', label: 'Last Quarter' },
+      { max: 93, name: 'waning-crescent', label: 'Waning Crescent' },
+      { max: 100, name: 'new', label: 'New Moon' }
+    ];
+
+    const phase = phases.find(p => sliderValue <= p.max) || phases[phases.length - 1];
+    this._moonPhaseName = phase.name;
+    this._moonPhaseLabel = phase.label;
+
+    const material = this.mascot.core3D?.customMaterial;
+    if (material?.uniforms) {
+      animateMoonPhase(material, phase.name, 300);
     }
   }
 
@@ -455,8 +485,9 @@ export class GeometryCarousel {
     // Map variant names to SSS preset names
     const presetMap = {
       'default': 'quartz',
-      'emerald': 'emerald',
       'ruby': 'ruby',
+      'citrine': 'citrine',
+      'emerald': 'emerald',
       'sapphire': 'sapphire',
       'amethyst': 'amethyst'
     };
@@ -474,17 +505,18 @@ export class GeometryCarousel {
     const variant = current.variants[this.currentVariantIndex];
 
     if (this.onSelect) {
-      this.onSelect(current.name, variant.name);
+      this.onSelect(current.id, variant.name);
     }
 
-    this.hide();
+    // Hide with gesture trigger - plays a random gesture when mascot lands
+    this.hide(true);
   }
 
   // Jump directly to a geometry by name (for voice commands)
   selectByName(name) {
     const index = this.geometries.findIndex(g =>
-      g.name.toLowerCase() === name.toLowerCase() ||
-      g.label.toLowerCase() === name.toLowerCase()
+      g.id.toLowerCase() === name.toLowerCase() ||
+      g.name.toLowerCase() === name.toLowerCase()
     );
 
     if (index !== -1) {

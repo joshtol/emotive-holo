@@ -17,6 +17,10 @@ export class HoloPhone {
     this.renderer = renderer;
     this.mesh = null;
 
+    // Raycaster for touch detection
+    this._raycaster = new THREE.Raycaster();
+    this._pointer = new THREE.Vector2();
+
     // Screen texture components
     this.screenCanvas = null;
     this.screenContext = null;
@@ -25,8 +29,12 @@ export class HoloPhone {
 
     // Screen content state
     this._screenText = 'Hold to speak';
-    this._screenState = 'idle';  // idle, listening, processing, speaking
+    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel
     this._animationFrame = 0;
+
+    // Carousel state
+    this._carouselData = null;  // { geometries, currentIndex, currentVariantIndex, variants, phase }
+    this._carouselHitRegions = [];  // { name, x, y, w, h, extra? }[]
 
     // UV calibration values (can be adjusted in grid mode)
     this._uvMin = { x: 0.04, y: 0.27 };
@@ -120,6 +128,9 @@ export class HoloPhone {
         break;
       case 'speaking':
         this._drawSpeakingState(ctx, w, h);
+        break;
+      case 'carousel':
+        this._drawCarouselState(ctx, w, h);
         break;
       default:
         this._drawIdleState(ctx, w, h);
@@ -261,6 +272,670 @@ export class HoloPhone {
     ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
     ctx.lineWidth = glowWidth;
     ctx.strokeRect(glowWidth / 2, glowWidth / 2, w - glowWidth, h - glowWidth);
+  }
+
+  // ==================== CAROUSEL STATE ====================
+
+  /**
+   * SSS color mapping for crystal variants
+   */
+  static SSS_COLORS = {
+    'default': '#ffffff',  // Quartz (white)
+    'ruby': '#e0115f',     // Ruby (red)
+    'citrine': '#e4a700',  // Citrine (yellow/orange)
+    'emerald': '#50c878',  // Emerald (green)
+    'sapphire': '#0f52ba', // Sapphire (blue)
+    'amethyst': '#9966cc'  // Amethyst (purple)
+  };
+
+  /**
+   * Set carousel data and enter carousel mode
+   * @param {Object|null} data - Carousel data or null to exit
+   * @param {Array} data.geometries - List of geometry objects
+   * @param {number} data.currentIndex - Current geometry index
+   * @param {number} data.currentVariantIndex - Current variant index
+   * @param {Array} data.variants - Current geometry's variants
+   * @param {number} data.phase - Moon phase value (0-1) if applicable
+   */
+  setCarouselData(data) {
+    this._carouselData = data;
+    if (data) {
+      this._screenState = 'carousel';
+    } else {
+      this._screenState = 'idle';
+      this._screenText = 'Hold to speak';
+    }
+    this._renderScreen();
+  }
+
+  /**
+   * Get hit region at canvas coordinates
+   * @param {number} x - Canvas X coordinate (0 to screenWidth)
+   * @param {number} y - Canvas Y coordinate (0 to screenHeight)
+   * @returns {Object|null} - Hit region { name, extra? } or null
+   */
+  getHitRegion(x, y) {
+    for (const region of this._carouselHitRegions) {
+      if (x >= region.x && x <= region.x + region.w &&
+          y >= region.y && y <= region.y + region.h) {
+        return { name: region.name, extra: region.extra };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get the screen bounds of the phone screen by projecting its 3D bounding box
+   * @param {THREE.Camera} emitterCamera - The emitter's camera
+   * @returns {Object|null} - { left, right, top, bottom } in screen pixels, or null
+   */
+  getScreenBounds(emitterCamera) {
+    if (!this.mesh || !emitterCamera || !this.renderer) return null;
+
+    // Update matrices
+    this.mesh.updateMatrixWorld(true);
+    emitterCamera.updateMatrixWorld();
+    emitterCamera.updateProjectionMatrix();
+
+    // Compute world-space bounding box of the phone mesh
+    const box = new THREE.Box3().setFromObject(this.mesh);
+
+    // Get all 8 corners of the bounding box
+    const corners = [
+      new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+      new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+      new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+      new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+      new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+    ];
+
+    // Get renderer size
+    const rect = this.renderer.domElement.getBoundingClientRect();
+
+    // Project each corner to screen space
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    for (const corner of corners) {
+      const projected = corner.clone().project(emitterCamera);
+
+      // Only consider points in front of camera
+      if (projected.z < 1) {
+        // Convert from NDC (-1 to 1) to screen pixels
+        const screenX = (projected.x + 1) / 2 * rect.width + rect.left;
+        const screenY = (-projected.y + 1) / 2 * rect.height + rect.top;
+
+        minX = Math.min(minX, screenX);
+        maxX = Math.max(maxX, screenX);
+        minY = Math.min(minY, screenY);
+        maxY = Math.max(maxY, screenY);
+      }
+    }
+
+    if (minX === Infinity) return null;
+
+    // The bounding box includes the phone frame, but we want just the screen
+    // The screen is roughly 85% of the phone width and centered
+    const boxWidth = maxX - minX;
+    const boxHeight = maxY - minY;
+    const screenWidthRatio = 0.85;
+    const screenHeightRatio = 0.70;
+
+    const screenWidth = boxWidth * screenWidthRatio;
+    const screenHeight = boxHeight * screenHeightRatio;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    return {
+      left: centerX - screenWidth / 2,
+      right: centerX + screenWidth / 2,
+      top: centerY - screenHeight / 2,
+      bottom: centerY + screenHeight / 2,
+      centerX,
+      centerY,
+      width: screenWidth,
+      height: screenHeight
+    };
+  }
+
+  /**
+   * Raycast from screen coordinates to phone mesh and return canvas coordinates
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   * @param {THREE.Camera} emitterCamera - The emitter's camera (phone is in emitter scene)
+   * @returns {Object|null} - { canvasX, canvasY, onScreen } or null if no hit
+   */
+  raycastToCanvas(clientX, clientY, emitterCamera) {
+    if (!this.mesh || !emitterCamera) {
+      console.log('raycastToCanvas: missing mesh or camera', { mesh: !!this.mesh, camera: !!emitterCamera });
+      return null;
+    }
+
+    // Convert screen coords to normalized device coordinates (-1 to +1)
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this._pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this._pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+    // Update camera matrices before raycasting
+    emitterCamera.updateMatrixWorld();
+    emitterCamera.updateProjectionMatrix();
+
+    this._raycaster.setFromCamera(this._pointer, emitterCamera);
+
+    // Get all meshes from phone model
+    const meshes = [];
+    this.mesh.traverse((child) => {
+      if (child.isMesh) meshes.push(child);
+    });
+
+    const intersects = this._raycaster.intersectObjects(meshes, false);
+
+    if (intersects.length === 0) {
+      return null;
+    }
+
+    const hit = intersects[0];
+
+    // Get UV coordinates at hit point
+    if (!hit.uv) {
+      console.log('raycastToCanvas: hit but no UV coords');
+      return null;
+    }
+
+    const uv = hit.uv;
+
+    // Check if UV is within screen region
+    if (uv.x < this._uvMin.x || uv.x > this._uvMax.x ||
+        uv.y < this._uvMin.y || uv.y > this._uvMax.y) {
+      return { canvasX: 0, canvasY: 0, onScreen: false };
+    }
+
+    // Map UV to screen coordinates (accounting for 90° rotation in shader)
+    // The shader does: screenUV.x = 1.0 - screenUV.y; screenUV.y = 1.0 - temp;
+    // We need to reverse this transformation
+    const normalizedU = (uv.x - this._uvMin.x) / (this._uvMax.x - this._uvMin.x);
+    const normalizedV = (uv.y - this._uvMin.y) / (this._uvMax.y - this._uvMin.y);
+
+    // Reverse the shader's rotation to get canvas coordinates from UV
+    // The shader samples texture at (1-v, 1-u), but the raycasted UV is in
+    // mesh UV space, not screen space. Testing shows:
+    // - canvasX = (1 - normalizedV) * width  (correct)
+    // - canvasY = normalizedU * height (NOT inverted - mesh UV.x maps directly to canvas Y)
+    const canvasX = (1 - normalizedV) * this.options.screenWidth;
+    const canvasY = normalizedU * this.options.screenHeight;
+
+    return {
+      canvasX: Math.max(0, Math.min(this.options.screenWidth, canvasX)),
+      canvasY: Math.max(0, Math.min(this.options.screenHeight, canvasY)),
+      onScreen: true
+    };
+  }
+
+  /**
+   * Draw carousel state - geometry selector on phone screen
+   * SPLIT BRACKET LAYOUT (512x228)
+   *
+   * Left bracket [  : Top half = Cancel (✕), Bottom half = Prev (‹)
+   * Right bracket ] : Top half = Confirm (✓), Bottom half = Next (›)
+   * Center area: Variant controls (circles, pills, slider)
+   *
+   * Title floats holographically above emitter in DOM.
+   */
+  _drawCarouselState(ctx, w, h) {
+    // Clear hit regions
+    this._carouselHitRegions = [];
+
+    if (!this._carouselData) return;
+
+    const { geometries, currentIndex, currentVariantIndex, variants, phase } = this._carouselData;
+    const currentGeom = geometries[currentIndex];
+    if (!currentGeom) return;
+
+    // Bracket dimensions
+    const bracketWidth = 70;      // Width of each bracket zone
+    const bracketLineWidth = 4;   // Thickness of bracket lines
+    const bracketInset = 12;      // Padding from edge
+    // 1/3 for action (cancel/confirm), 2/3 for navigation (prev/next)
+    const actionHeight = h / 3;
+    const navHeight = (h * 2) / 3;
+
+    // === LEFT BRACKET [ ===
+    // Top 1/3: Cancel (✕)
+    // Bottom 2/3: Previous (‹)
+    this._drawSplitBracket(ctx, bracketInset, 0, bracketWidth, h, 'left', bracketLineWidth);
+
+    // Left bracket hit regions
+    this._carouselHitRegions.push({
+      name: 'cancel',
+      x: 0, y: 0, w: bracketWidth + bracketInset, h: actionHeight
+    });
+    this._carouselHitRegions.push({
+      name: 'prev-geometry',
+      x: 0, y: actionHeight, w: bracketWidth + bracketInset, h: navHeight
+    });
+
+    // === RIGHT BRACKET ] ===
+    // Top 1/3: Confirm (✓)
+    // Bottom 2/3: Next (›)
+    this._drawSplitBracket(ctx, w - bracketInset - bracketWidth, 0, bracketWidth, h, 'right', bracketLineWidth);
+
+    // Right bracket hit regions
+    this._carouselHitRegions.push({
+      name: 'confirm',
+      x: w - bracketWidth - bracketInset, y: 0, w: bracketWidth + bracketInset, h: actionHeight
+    });
+    this._carouselHitRegions.push({
+      name: 'next-geometry',
+      x: w - bracketWidth - bracketInset, y: actionHeight, w: bracketWidth + bracketInset, h: navHeight
+    });
+
+    // === CENTER AREA: Variants ===
+    const centerX = bracketWidth + bracketInset + 10;
+    const centerWidth = w - 2 * (bracketWidth + bracketInset + 10);
+
+    // Check if this is an SSS geometry (colored circles) or text-based
+    const isSSS = currentGeom.sss === true;
+    const hasMoonPhase = currentGeom.id === 'moon' && variants && variants.length > 0;
+
+    if (isSSS && variants && variants.length > 0) {
+      this._drawSSSVariants(ctx, variants, currentVariantIndex, 0, h, w, centerX, centerWidth);
+    } else if (hasMoonPhase) {
+      this._drawMoonPhaseRow(ctx, variants, currentVariantIndex, phase, 0, h, w, centerX, centerWidth);
+    } else if (variants && variants.length > 0) {
+      this._drawTextVariants(ctx, variants, currentVariantIndex, 0, h, w, centerX, centerWidth);
+    }
+  }
+
+  /**
+   * Draw a split bracket with two functions
+   * Top 1/3 has action icon (cancel/confirm), bottom 2/3 has navigation arrow
+   * @param {string} side - 'left' or 'right'
+   */
+  _drawSplitBracket(ctx, x, y, width, height, side, lineWidth) {
+    // 1/3 for action, 2/3 for navigation
+    const actionHeight = height / 3;
+    const navHeight = (height * 2) / 3;
+    const splitY = actionHeight;
+    const cornerRadius = 8;
+
+    // Colors
+    const bracketGlow = 'rgba(64, 224, 208, 0.3)';
+    const cancelColor = 'rgba(255, 100, 100, 0.7)';
+    const confirmColor = 'rgba(80, 200, 120, 0.7)';
+    const navColor = 'rgba(64, 224, 208, 0.8)';
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (side === 'left') {
+      // Draw [ bracket shape - split at 1/3
+
+      // Top 1/3 bracket (Cancel zone) - opens right [
+      ctx.strokeStyle = cancelColor;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(x + width, y + 8);
+      ctx.lineTo(x + cornerRadius, y + 8);
+      ctx.quadraticCurveTo(x, y + 8, x, y + 8 + cornerRadius);
+      ctx.lineTo(x, splitY - 4);
+      ctx.stroke();
+
+      // Bottom 2/3 bracket (Prev zone)
+      ctx.strokeStyle = navColor;
+      ctx.beginPath();
+      ctx.moveTo(x, splitY + 4);
+      ctx.lineTo(x, height - 8 - cornerRadius);
+      ctx.quadraticCurveTo(x, height - 8, x + cornerRadius, height - 8);
+      ctx.lineTo(x + width, height - 8);
+      ctx.stroke();
+
+      // Horizontal divider line
+      ctx.strokeStyle = bracketGlow;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, splitY);
+      ctx.lineTo(x + width - 10, splitY);
+      ctx.stroke();
+
+      // Cancel icon (✕) in top 1/3
+      const cancelCenterX = x + width / 2;
+      const cancelCenterY = actionHeight / 2;
+      ctx.fillStyle = '#ff6b6b';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✕', cancelCenterX, cancelCenterY);
+
+      // Prev arrow (‹) in bottom 2/3
+      const prevCenterX = x + width / 2;
+      const prevCenterY = splitY + navHeight / 2;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 56px Arial';
+      ctx.fillText('‹', prevCenterX, prevCenterY);
+
+    } else {
+      // Draw ] bracket shape - split at 1/3
+
+      // Top 1/3 bracket (Confirm zone) - opens left ]
+      ctx.strokeStyle = confirmColor;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 8);
+      ctx.lineTo(x + width - cornerRadius, y + 8);
+      ctx.quadraticCurveTo(x + width, y + 8, x + width, y + 8 + cornerRadius);
+      ctx.lineTo(x + width, splitY - 4);
+      ctx.stroke();
+
+      // Bottom 2/3 bracket (Next zone)
+      ctx.strokeStyle = navColor;
+      ctx.beginPath();
+      ctx.moveTo(x + width, splitY + 4);
+      ctx.lineTo(x + width, height - 8 - cornerRadius);
+      ctx.quadraticCurveTo(x + width, height - 8, x + width - cornerRadius, height - 8);
+      ctx.lineTo(x, height - 8);
+      ctx.stroke();
+
+      // Horizontal divider line
+      ctx.strokeStyle = bracketGlow;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 10, splitY);
+      ctx.lineTo(x + width, splitY);
+      ctx.stroke();
+
+      // Confirm icon (✓) in top 1/3
+      const confirmCenterX = x + width / 2;
+      const confirmCenterY = actionHeight / 2;
+      ctx.fillStyle = '#50c878';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✓', confirmCenterX, confirmCenterY);
+
+      // Next arrow (›) in bottom 2/3
+      const nextCenterX = x + width / 2;
+      const nextCenterY = splitY + navHeight / 2;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 56px Arial';
+      ctx.fillText('›', nextCenterX, nextCenterY);
+    }
+  }
+
+  /**
+   * Draw SSS variant gradient slider - colored gemstone spectrum
+   * A horizontal gradient bar with draggable knob that snaps to gem colors
+   */
+  _drawSSSVariants(ctx, variants, currentIdx, y, height, canvasWidth, centerX, centerWidth) {
+    const sliderPadding = 20;
+    const sliderX = centerX + sliderPadding;
+    const sliderW = centerWidth - sliderPadding * 2;
+    const sliderY = y + height / 2;
+    const sliderH = 20;
+    const knobRadius = 28;
+
+    // Create gradient from all variant colors
+    const gradient = ctx.createLinearGradient(sliderX, 0, sliderX + sliderW, 0);
+    variants.forEach((variant, i) => {
+      const color = HoloPhone.SSS_COLORS[variant.preset] || HoloPhone.SSS_COLORS['default'];
+      const stop = i / (variants.length - 1);
+      gradient.addColorStop(stop, color);
+    });
+
+    // Draw gradient track with rounded ends
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.roundRect(sliderX, sliderY - sliderH / 2, sliderW, sliderH, sliderH / 2);
+    ctx.fill();
+
+    // Track border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Calculate knob position based on current selection
+    const knobProgress = currentIdx / (variants.length - 1);
+    const knobX = sliderX + knobProgress * sliderW;
+
+    // Get current color
+    const currentColor = HoloPhone.SSS_COLORS[variants[currentIdx]?.preset] || HoloPhone.SSS_COLORS['default'];
+
+    // Knob glow
+    ctx.shadowColor = currentColor;
+    ctx.shadowBlur = 15;
+
+    // Knob fill with current color
+    ctx.fillStyle = currentColor;
+    ctx.beginPath();
+    ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Reset shadow
+    ctx.shadowBlur = 0;
+
+    // Knob 3D highlight
+    const knobGradient = ctx.createRadialGradient(
+      knobX - knobRadius * 0.3, sliderY - knobRadius * 0.3, 0,
+      knobX, sliderY, knobRadius
+    );
+    knobGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+    knobGradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)');
+    knobGradient.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+    ctx.fillStyle = knobGradient;
+    ctx.beginPath();
+    ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Knob border
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Draw small tick marks at each variant position
+    variants.forEach((variant, i) => {
+      const tickX = sliderX + (i / (variants.length - 1)) * sliderW;
+      const tickColor = HoloPhone.SSS_COLORS[variant.preset] || HoloPhone.SSS_COLORS['default'];
+
+      // Small circle marker at each stop
+      ctx.fillStyle = i === currentIdx ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
+      ctx.beginPath();
+      ctx.arc(tickX, sliderY + sliderH / 2 + 12, i === currentIdx ? 6 : 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Single hit region for entire slider (drag anywhere)
+    this._carouselHitRegions.push({
+      name: 'sss-slider',
+      x: sliderX - knobRadius,
+      y: y,
+      w: sliderW + knobRadius * 2,
+      h: height,
+      extra: { sliderX, sliderW, variantCount: variants.length }
+    });
+  }
+
+  /**
+   * Draw text-based variant pills - ACCESSIBILITY OPTIMIZED
+   * Centered in available space between brackets
+   */
+  _drawTextVariants(ctx, variants, currentIdx, y, height, canvasWidth, centerX, centerWidth) {
+    const pillHeight = 50;      // Large pills for fat fingers
+    const pillPadding = 24;
+    const spacing = 14;
+
+    // Measure all pills with larger font (24px)
+    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+    const pillWidths = variants.map(v => ctx.measureText(v.label || v.name).width + pillPadding * 2);
+    const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (variants.length - 1) * spacing;
+    let startX = centerX + (centerWidth - totalWidth) / 2;
+
+    variants.forEach((variant, i) => {
+      const pillW = pillWidths[i];
+      const pillX = startX;
+      const pillY = y + (height - pillHeight) / 2;
+      const isActive = i === currentIdx;
+
+      // High contrast pill background
+      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.55)' : 'rgba(64, 224, 208, 0.25)';
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
+      ctx.fill();
+
+      // Thick visible border
+      if (isActive) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(64, 224, 208, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Large high-contrast text (24px)
+      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.9)';
+      ctx.font = isActive ? 'bold 24px "Segoe UI", Arial, sans-serif' : '24px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(variant.label || variant.name, pillX + pillW / 2, pillY + pillHeight / 2);
+
+      // Full height hit region
+      this._carouselHitRegions.push({
+        name: 'variant',
+        x: pillX - spacing / 2,
+        y: y,
+        w: pillW + spacing,
+        h: height,
+        extra: { index: i }
+      });
+
+      startX += pillW + spacing;
+    });
+  }
+
+  /**
+   * Draw moon phase row with variant pills and phase slider
+   * Pills centered horizontally, slider appears BELOW pills when Phase is active
+   */
+  _drawMoonPhaseRow(ctx, variants, currentIdx, phase, y, height, canvasWidth, centerX, centerWidth) {
+    const pillHeight = 50;
+    const pillPadding = 20;
+    const spacing = 12;
+    const phaseVariantActive = variants[currentIdx]?.name === 'phase';
+
+    // Layout: pills on top row, slider on bottom row (if Phase active)
+    const sliderRowHeight = phaseVariantActive ? 50 : 0;
+    const pillRowHeight = height - sliderRowHeight;
+    const pillY = y + (pillRowHeight - pillHeight) / 2;
+
+    // Measure all pills with larger font
+    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+    const pillWidths = variants.map(v => ctx.measureText(v.label || v.name).width + pillPadding * 2);
+    const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (variants.length - 1) * spacing;
+    let startX = centerX + (centerWidth - totalWidth) / 2;
+
+    variants.forEach((variant, i) => {
+      const label = variant.label || variant.name;
+      const pillW = pillWidths[i];
+      const pillX = startX;
+      const isActive = i === currentIdx;
+
+      // High contrast pill background
+      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.55)' : 'rgba(64, 224, 208, 0.25)';
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
+      ctx.fill();
+
+      if (isActive) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Large high-contrast text
+      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.9)';
+      ctx.font = isActive ? 'bold 24px "Segoe UI", Arial, sans-serif' : '24px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, pillX + pillW / 2, pillY + pillHeight / 2);
+
+      // Hit region for pill row only
+      this._carouselHitRegions.push({
+        name: 'variant',
+        x: pillX - spacing / 2,
+        y: y,
+        w: pillW + spacing,
+        h: pillRowHeight,
+        extra: { index: i }
+      });
+
+      startX += pillW + spacing;
+    });
+
+    // Bottom row: Phase slider (only when Phase variant is active)
+    if (phaseVariantActive && phase !== undefined) {
+      const sliderRowY = y + pillRowHeight;
+      const sliderPadding = 30;
+      const sliderX = centerX + sliderPadding;
+      const sliderW = centerWidth - sliderPadding * 2;
+      const sliderY = sliderRowY + sliderRowHeight / 2;
+      const sliderH = 12;
+      const knobRadius = 24;  // Larger knob for easier touch
+
+      // Slider track
+      ctx.fillStyle = 'rgba(64, 224, 208, 0.3)';
+      ctx.beginPath();
+      ctx.roundRect(sliderX, sliderY - sliderH / 2, sliderW, sliderH, sliderH / 2);
+      ctx.fill();
+
+      // Track border
+      ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Slider fill
+      const fillW = phase * sliderW;
+      ctx.fillStyle = 'rgba(64, 224, 208, 0.7)';
+      ctx.beginPath();
+      ctx.roundRect(sliderX, sliderY - sliderH / 2, fillW, sliderH, sliderH / 2);
+      ctx.fill();
+
+      // Knob
+      const knobX = sliderX + fillW;
+      ctx.fillStyle = '#40e0d0';
+      ctx.beginPath();
+      ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Knob border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Knob inner highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.beginPath();
+      ctx.arc(knobX - 3, sliderY - 3, knobRadius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Slider hit region (bottom row only)
+      this._carouselHitRegions.push({
+        name: 'phase-slider',
+        x: sliderX - knobRadius,
+        y: sliderRowY,
+        w: sliderW + knobRadius * 2,
+        h: sliderRowHeight,
+        extra: { sliderX, sliderW }
+      });
+    }
   }
 
   /**

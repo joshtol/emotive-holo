@@ -222,227 +222,149 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CAROUSEL - Approachable Futurism Redesign
+   CAROUSEL - Phone UI + Floating Holographic Title
    ═══════════════════════════════════════════════════════════════════════════ */
 
-#carousel {
+/* Floating holographic title - positioned above emitter during carousel */
+#carousel-title {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  padding-bottom: 180px;
-  z-index: 50;
-  pointer-events: none;
-}
-
-#carousel.hidden {
-  display: none;
-}
-
-#carousel > * {
-  pointer-events: auto;
-}
-
-/* Remove the old carousel-center - we use the live mascot now */
-#carousel-center {
-  display: none;
-}
-
-/* Carousel bottom panel - Soft glass */
-.carousel-panel {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--blur-amount));
-  -webkit-backdrop-filter: blur(var(--blur-amount));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-soft);
-  padding: 24px 40px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  animation: slideUp var(--duration-slow) var(--ease-out);
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Navigation row */
-.carousel-nav {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-}
-
-.carousel-arrow {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--glass-border);
-  color: var(--text-secondary);
-  font-size: 1rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.carousel-arrow:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-  transform: scale(1.05);
-}
-
-.carousel-arrow:active {
-  transform: scale(0.95);
-}
-
-/* Geometry name display */
-.carousel-title {
+  left: var(--layout-center-x);
+  transform: translateX(-50%);
+  /* Position above emitter */
+  bottom: 43%;
+  z-index: 100;
   text-align: center;
-  min-width: 120px;
+  pointer-events: none;
+
+  /* Very slow, subtle flicker - every 20 seconds */
+  animation: holo-flicker 20s ease-in-out infinite, holo-drift 12s ease-in-out infinite;
 }
 
-.carousel-title h2 {
-  font-size: 1.25rem;
+#carousel-title.hidden {
+  display: none;
+}
+
+/* Main title - geometry name with scanlines INSIDE text */
+#carousel-title .title-name {
+  font-family: 'Montserrat', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.75rem;
   font-weight: 500;
-  color: var(--text-primary);
-  letter-spacing: 1px;
-  margin: 0;
-}
-
-.carousel-title .subtitle {
-  font-size: 0.7rem;
-  font-weight: 400;
-  color: var(--text-tertiary);
+  letter-spacing: 6px;
   text-transform: uppercase;
-  letter-spacing: 2px;
-  margin-top: 4px;
+  margin-bottom: 0.25rem;
+  position: relative;
+
+  /* Scanlines + shimmer gradient clipped to text */
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.95) 0px,
+      rgba(255, 255, 255, 0.95) 2px,
+      rgba(200, 220, 255, 0.7) 2px,
+      rgba(200, 220, 255, 0.7) 4px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.9) 0%,
+      rgba(140, 180, 255, 1) 50%,
+      rgba(255, 255, 255, 0.9) 100%
+    );
+  background-size: 100% 100%, 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+
+  /* Slow shimmer - 8 seconds */
+  animation: holo-shimmer 8s linear infinite;
+
+  /* Chromatic aberration glow around text */
+  filter:
+    drop-shadow(-1px 0 0 rgba(255, 100, 100, 0.3))
+    drop-shadow(1px 0 0 rgba(100, 255, 255, 0.3))
+    drop-shadow(0 0 15px var(--accent-glow))
+    drop-shadow(0 0 30px rgba(140, 180, 255, 0.2));
 }
 
-/* Variant pills - Horizontal, scrollable, better touch targets */
-.carousel-variants {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 8px;
-  max-width: 100%;
-}
-
-.variant-pill {
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--glass-border);
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
-  white-space: nowrap;
-}
-
-.variant-pill:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: var(--text-primary);
-  transform: scale(1.02);
-}
-
-.variant-pill.active {
-  background: var(--accent-subtle);
-  border-color: var(--accent);
+/* Subtitle - variant name */
+#carousel-title .title-variant {
+  font-family: 'Montserrat', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 400;
   color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  opacity: 0.85;
+
+  /* Subtle glow */
+  text-shadow: 0 0 15px var(--accent-glow);
+
+  animation: breathe-text 4s ease-in-out infinite;
 }
 
-/* Action buttons */
-.carousel-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 8px;
+/* Very subtle caustic light - slow 30 second drift */
+#carousel-title::after {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: -40px;
+  right: -40px;
+  bottom: -20px;
+  background:
+    radial-gradient(ellipse 80px 50px at 30% 40%, rgba(140, 180, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60px 40px at 70% 60%, rgba(100, 255, 255, 0.06) 0%, transparent 60%);
+  pointer-events: none;
+  animation: caustic-drift 30s ease-in-out infinite;
+  mix-blend-mode: screen;
+  opacity: 0.5;
 }
 
-.carousel-btn {
-  padding: 10px 28px;
-  border-radius: var(--radius-pill);
-  font-size: 0.85rem;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
-  border: none;
-  outline: none;
+/* Holographic animations - all slowed down significantly */
+@keyframes holo-flicker {
+  0%, 100% { opacity: 1; }
+  48% { opacity: 1; }
+  49% { opacity: 0.92; }
+  50% { opacity: 1; }
+  97% { opacity: 1; }
+  98% { opacity: 0.95; }
+  99% { opacity: 1; }
 }
 
-.carousel-btn.primary {
-  background: var(--accent);
-  color: #000;
+@keyframes holo-drift {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-2px); }
 }
 
-.carousel-btn.primary:hover {
-  background: rgba(160, 195, 255, 1);
-  transform: scale(1.02);
+@keyframes holo-shimmer {
+  0% { background-position: 100% 100%, 300% 0; }
+  100% { background-position: 100% 100%, -300% 0; }
 }
 
-.carousel-btn.secondary {
-  background: transparent;
-  border: 1px solid var(--glass-border);
-  color: var(--text-secondary);
+@keyframes caustic-drift {
+  0%, 100% {
+    transform: scale(1) translateX(0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.02) translateX(5px);
+    opacity: 0.6;
+  }
 }
 
-.carousel-btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
+/* Mobile adjustments for floating title */
+@media (max-width: 768px), (orientation: portrait) {
+  #carousel-title {
+    bottom: 42%;
+  }
 
-/* Close button - Top right, minimal */
-.carousel-close {
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--blur-amount));
-  -webkit-backdrop-filter: blur(var(--blur-amount));
-  border: 1px solid var(--glass-border);
-  color: var(--text-secondary);
-  font-size: 1.25rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-fast) var(--ease-out);
-  z-index: 51;
-}
+  #carousel-title .title-name {
+    font-size: 1.5rem;
+    letter-spacing: 5px;
+  }
 
-.carousel-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-  transform: scale(1.05);
-}
-
-/* Hide old DOM elements that carousel.js creates */
-#carousel-left,
-#carousel-right,
-#variant-dots {
-  display: none !important;
+  #carousel-title .title-variant {
+    font-size: 0.85rem;
+    letter-spacing: 3px;
+  }
 }
 
 /* Meditation overlay - Blurs background only, NOT the mascot */
@@ -641,6 +563,8 @@ body {
   z-index: 15;
   cursor: pointer;
   transition: all var(--duration-normal) var(--ease-out);
+  /* Hidden by default - 3D phone replaces this */
+  display: none;
 }
 
 /* Phone frame - iPhone 17 proportions (laid horizontally, leaning) */
@@ -954,22 +878,5 @@ body {
 
 /* Mobile adjustments - layout-scaler.js handles most positioning via CSS vars */
 @media (max-width: 768px) {
-  .carousel-panel {
-    padding: 20px 24px;
-    margin: 0 16px;
-    width: calc(100% - 32px);
-  }
-
-  .carousel-nav {
-    gap: 20px;
-  }
-
-  .carousel-arrow {
-    width: 40px;
-    height: 40px;
-  }
-
-  .carousel-title h2 {
-    font-size: 1.1rem;
-  }
+  /* Carousel now renders on phone screen - no DOM styles needed */
 }

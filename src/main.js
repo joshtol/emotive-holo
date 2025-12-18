@@ -30,6 +30,9 @@ class EmoAssistant {
     // Manual selection flag - prevents auto-revert when user deliberately chooses something
     this._userManualSelection = false;
 
+    // User-requested emotion flag - prevents emotion revert when user explicitly asked for it
+    this._userRequestedEmotion = false;
+
     // Modules
     this.voiceInput = null;
     this.claude = null;
@@ -52,7 +55,11 @@ class EmoAssistant {
       cancelButton: document.getElementById('cancel-btn'),
       // Response progress bar
       responseProgress: document.getElementById('response-progress'),
-      responseProgressFill: document.querySelector('#response-progress .progress-fill')
+      responseProgressFill: document.querySelector('#response-progress .progress-fill'),
+      // Floating carousel title (holographic projection above emitter)
+      carouselTitle: document.getElementById('carousel-title'),
+      carouselTitleName: document.querySelector('#carousel-title .title-name'),
+      carouselTitleVariant: document.querySelector('#carousel-title .title-variant')
     };
 
     // AbortController for cancelling in-flight requests
@@ -63,6 +70,10 @@ class EmoAssistant {
 
     // Phone touch overlay reference (created in setupEventListeners)
     this._phoneOverlay = null;
+
+    // Carousel slider drag state
+    this._carouselSliderDragging = false;
+    this._carouselSliderRegion = null;
   }
 
   async init() {
@@ -183,6 +194,16 @@ class EmoAssistant {
     // This gives us accurate emitter bounds for shadow positioning
     setTimeout(() => {
       layoutScaler.updateShadows();
+      // Debug: log phone screen bounds
+      if (this.holoPhone3D && this.emitterBase?.emitterCamera) {
+        const bounds = this.holoPhone3D.getScreenBounds(this.emitterBase.emitterCamera);
+        console.log('Phone screen bounds:', bounds);
+
+        // Show debug overlay if ?phone-touch-debug is in URL
+        if (window.location.search.includes('phone-touch-debug')) {
+          this._showPhoneBoundsDebug(bounds);
+        }
+      }
     }, 100);
 
     // Set initial calm state
@@ -193,7 +214,29 @@ class EmoAssistant {
     this.claude = new ClaudeClient();
     this.tts = new NativeTTS(this.mascot);
     this.meditation = new MeditationController(this.mascot, this.tts, this.elements);
-    this.carousel = new GeometryCarousel(this.mascot, this.elements.container);
+    // Pass holoPhone3D to carousel so it can render on the phone screen
+    this.carousel = new GeometryCarousel(this.mascot, this.elements.container, this.holoPhone3D);
+
+    // Wire up carousel state change to sync main state
+    this.carousel.onStateChange = (carouselState) => {
+      if (carouselState === 'carousel') {
+        this.setState('carousel');
+      } else if (carouselState === 'idle' && this.state === 'carousel') {
+        this.setState('idle');
+        this.resetScreen();
+        // Hide floating holographic title
+        if (this.elements.carouselTitle) {
+          this.elements.carouselTitle.classList.add('hidden');
+        }
+      }
+    };
+
+    // Wire up floating holographic title updates
+    this.carousel.onTitleChange = (data) => {
+      if (data && data.name) {
+        this._updateCarouselTitle(data.name, data.variant);
+      }
+    };
 
     // Wire up TTS progress tracking
     this.tts.onProgress = (progress) => {
@@ -238,38 +281,92 @@ class EmoAssistant {
 
     // Mouse events on overlay
     phoneOverlay.addEventListener('mousedown', (e) => {
-      console.log('MOUSEDOWN on overlay');
+      console.log('MOUSEDOWN on overlay, state:', this.state);
       e.preventDefault();
       e.stopPropagation();
+
+      // Route to carousel if in carousel state
+      if (this.state === 'carousel') {
+        this._handleCarouselTouch(e.clientX, e.clientY, 'start');
+        return;
+      }
+
       this.startListening();
     });
 
-    phoneOverlay.addEventListener('mouseup', () => {
+    phoneOverlay.addEventListener('mousemove', (e) => {
+      // Handle carousel slider drag
+      if (this.state === 'carousel' && this._carouselSliderDragging) {
+        e.preventDefault();
+        this._handleCarouselSliderDrag(e.clientX, e.clientY);
+      }
+    });
+
+    phoneOverlay.addEventListener('mouseup', (e) => {
       console.log('MOUSEUP on overlay');
+
+      // End carousel slider drag
+      if (this._carouselSliderDragging) {
+        this._carouselSliderDragging = false;
+        this._carouselSliderRegion = null;
+        return;
+      }
+
       if (this.state === 'listening') this.stopListening();
     });
 
     phoneOverlay.addEventListener('mouseleave', () => {
+      if (this._carouselSliderDragging) {
+        this._carouselSliderDragging = false;
+        this._carouselSliderRegion = null;
+      }
       if (this.state === 'listening') this.stopListening();
     });
 
     // Touch events on overlay
     phoneOverlay.addEventListener('touchstart', (e) => {
-      console.log('TOUCHSTART on overlay, touches:', e.touches.length);
+      console.log('TOUCHSTART on overlay, touches:', e.touches.length, 'state:', this.state);
       e.preventDefault();
       e.stopPropagation();
+
+      // Route to carousel if in carousel state
+      if (this.state === 'carousel') {
+        const touch = e.touches[0];
+        this._handleCarouselTouch(touch.clientX, touch.clientY, 'start');
+        return;
+      }
+
       this.startListening();
+    }, { passive: false });
+
+    phoneOverlay.addEventListener('touchmove', (e) => {
+      // Handle carousel slider drag
+      if (this.state === 'carousel' && this._carouselSliderDragging) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        this._handleCarouselSliderDrag(touch.clientX, touch.clientY);
+      }
     }, { passive: false });
 
     phoneOverlay.addEventListener('touchend', (e) => {
       console.log('TOUCHEND on overlay, state:', this.state);
       e.preventDefault();
+
+      // End carousel slider drag
+      if (this._carouselSliderDragging) {
+        this._carouselSliderDragging = false;
+        this._carouselSliderRegion = null;
+        return;
+      }
+
       if (this.state === 'listening') this.stopListening();
     }, { passive: false });
 
     phoneOverlay.addEventListener('touchcancel', (e) => {
       console.log('TOUCHCANCEL on overlay');
       e.preventDefault();
+      this._carouselSliderDragging = false;
+      this._carouselSliderRegion = null;
       if (this.state === 'listening') this.stopListening();
     }, { passive: false });
 
@@ -384,6 +481,8 @@ class EmoAssistant {
 
     // Reset manual selection flag - voice interactions should auto-revert
     this._userManualSelection = false;
+    // Note: Don't reset _userRequestedEmotion here - preserve user's emotional state
+    // It will be cleared only if the new response doesn't include a feel directive
 
     this.setState('listening');
     if (this.elements.holoPhone) {
@@ -394,7 +493,10 @@ class EmoAssistant {
     // Update screen state
     this.setScreen('Listening...', 'listening');
 
-    this.mascot.feel('attentive, alert');
+    // Only set attentive emotion if user hasn't requested a persistent emotion
+    if (!this._userRequestedEmotion) {
+      this.mascot.feel('attentive, alert');
+    }
 
     // Start voice recognition
     console.log('Starting voice input...');
@@ -434,7 +536,10 @@ class EmoAssistant {
         console.log('Processing timeout, resetting to idle');
         this.setState('idle');
         this.resetScreen();
-        this.mascot.feel('neutral, settle');
+        // Only reset emotion if user hasn't requested a persistent one
+        if (!this._userRequestedEmotion) {
+          this.mascot.feel('neutral, settle');
+        }
       }
     }, 3000);
   }
@@ -449,14 +554,20 @@ class EmoAssistant {
     if (!transcript.trim()) {
       this.setState('idle');
       this.resetScreen();
-      this.mascot.feel('neutral, settle');
+      // Only reset emotion if user hasn't requested a persistent one
+      if (!this._userRequestedEmotion) {
+        this.mascot.feel('neutral, settle');
+      }
       return;
     }
 
     console.log('User said:', transcript);
     this.setState('thinking');
     this.setScreen('Thinking...', '');
-    this.mascot.feel('focused, orbit');
+    // Only set thinking emotion if user hasn't requested a persistent one
+    if (!this._userRequestedEmotion) {
+      this.mascot.feel('focused, orbit');
+    }
 
     try {
       // Get response from Claude
@@ -494,6 +605,12 @@ class EmoAssistant {
       // Apply feel directive
       if (feel) {
         this.mascot.feel(feel);
+        // Mark as user-requested so it won't auto-revert
+        this._userRequestedEmotion = true;
+      } else {
+        // No feel directive in this response - clear the persistent emotion flag
+        // so future interactions can auto-revert normally
+        this._userRequestedEmotion = false;
       }
 
       // Apply undertone if present
@@ -656,14 +773,17 @@ class EmoAssistant {
     this.clearIdleRevert();
     this.clearScreenRevert();
 
-    // Hide the phone overlay so carousel items can be clicked
-    if (this._phoneOverlay) {
-      this._phoneOverlay.style.display = 'none';
-    }
+    // Don't hide the phone overlay - we need it for carousel touch events
+    // The overlay touch handlers will route to carousel when in carousel state
 
     this.setState('carousel');
-    this.setScreen('Select a shape', '');
+    // Screen is now controlled by carousel via holoPhone.setCarouselData()
     this.carousel.show();
+
+    // Show floating holographic title
+    if (this.elements.carouselTitle) {
+      this.elements.carouselTitle.classList.remove('hidden');
+    }
   }
 
   closeCarousel() {
@@ -671,10 +791,12 @@ class EmoAssistant {
     this.setState('idle');
     this.resetScreen();
 
-    // Re-show the phone overlay
-    if (this._phoneOverlay) {
-      this._phoneOverlay.style.display = 'block';
+    // Hide floating holographic title
+    if (this.elements.carouselTitle) {
+      this.elements.carouselTitle.classList.add('hidden');
     }
+
+    // Phone overlay stays visible - it's used for all touch interactions
 
     // Don't schedule idle revert if user manually selected something
     // They chose it deliberately, so keep it until they interact again
@@ -816,9 +938,14 @@ class EmoAssistant {
           this.currentGeometry = 'crystal';
         }
 
-        // Set calm emotion without settle gesture (settle causes position changes
-        // that conflict with the morph animation)
-        this.mascot.feel('calm, gentle breathing');
+        // Only revert emotion if user didn't explicitly request it
+        if (!this._userRequestedEmotion) {
+          // Set calm emotion without settle gesture (settle causes position changes
+          // that conflict with the morph animation)
+          this.mascot.feel('calm, gentle breathing');
+        } else {
+          console.log('Skipping emotion revert - user requested this emotion');
+        }
       }
     }, this.IDLE_REVERT_DELAY);
   }
@@ -883,10 +1010,165 @@ class EmoAssistant {
     // Reset to idle state
     this.setState('idle');
     this.setScreen('Cancelled', '');
-    this.mascot.feel('neutral, settle');
+    // Only reset emotion if user hasn't requested a persistent one
+    if (!this._userRequestedEmotion) {
+      this.mascot.feel('neutral, settle');
+    }
 
     // Schedule revert to default screen text
     this.scheduleScreenRevert();
+  }
+
+  /**
+   * Convert screen coordinates to phone canvas coordinates using raycasting
+   * Falls back to projected screen bounds if raycasting fails
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   * @returns {Object|null} - { x, y } in canvas coords (0-512, 0-228) or null if not on screen
+   */
+  _screenToPhoneCanvas(clientX, clientY) {
+    if (!this.holoPhone3D || !this.emitterBase) {
+      console.log('_screenToPhoneCanvas: missing holoPhone3D or emitterBase');
+      return null;
+    }
+
+    // Try raycasting first (most accurate)
+    if (this.emitterBase.emitterCamera) {
+      const result = this.holoPhone3D.raycastToCanvas(
+        clientX,
+        clientY,
+        this.emitterBase.emitterCamera
+      );
+
+      if (result) {
+        if (!result.onScreen) {
+          console.log('Raycast hit phone but not on screen area');
+          return null;
+        }
+        console.log('Raycast hit phone screen:', { canvasX: result.canvasX, canvasY: result.canvasY });
+        return { x: result.canvasX, y: result.canvasY };
+      }
+    }
+
+    // Fallback: Use projected screen bounds from 3D position
+    if (this.emitterBase.emitterCamera) {
+      const bounds = this.holoPhone3D.getScreenBounds(this.emitterBase.emitterCamera);
+      if (bounds) {
+        // Check if touch is within projected phone screen bounds
+        if (clientX >= bounds.left && clientX <= bounds.right &&
+            clientY >= bounds.top && clientY <= bounds.bottom) {
+
+          // Map to canvas coordinates (0-512 x 0-228)
+          const normalizedX = (clientX - bounds.left) / bounds.width;
+          const normalizedY = (clientY - bounds.top) / bounds.height;
+
+          const canvasX = normalizedX * 512;
+          // Invert Y axis - screen Y increases downward but canvas needs top=0
+          // The phone is tilted back, so top of screen bounds = bottom of canvas
+          const canvasY = (1 - normalizedY) * 228;
+
+          console.log('Using projected bounds:', { canvasX, canvasY, normalizedX, normalizedY, bounds });
+          return { x: canvasX, y: canvasY };
+        }
+        console.log('Touch outside projected phone bounds:', { clientX, clientY, bounds });
+        return null;
+      }
+    }
+
+    console.log('No valid coordinate conversion available');
+    return null;
+  }
+
+  /**
+   * Handle carousel touch/click
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   * @param {string} eventType - 'start', 'move', or 'end'
+   */
+  _handleCarouselTouch(clientX, clientY, eventType) {
+    if (!this.holoPhone3D || !this.carousel) {
+      console.log('_handleCarouselTouch: missing holoPhone3D or carousel');
+      return;
+    }
+
+    console.log('_handleCarouselTouch:', clientX, clientY, eventType);
+
+    const canvasCoords = this._screenToPhoneCanvas(clientX, clientY);
+    console.log('Canvas coords:', canvasCoords);
+
+    if (!canvasCoords) {
+      // Touch outside phone screen - could close carousel on tap outside
+      console.log('Touch outside phone screen');
+      return;
+    }
+
+    const hitRegion = this.holoPhone3D.getHitRegion(canvasCoords.x, canvasCoords.y);
+    console.log('Hit region:', hitRegion);
+
+    if (hitRegion) {
+      console.log('Carousel hit:', hitRegion.name, hitRegion.extra);
+
+      // Check for phase slider - start drag mode
+      if (hitRegion.name === 'phase-slider' && eventType === 'start') {
+        this._carouselSliderDragging = true;
+        this._carouselSliderType = 'phase';
+        this._carouselSliderRegion = hitRegion.extra;
+        // Also update slider immediately
+        this._handleCarouselSliderDrag(clientX, clientY);
+        return;
+      }
+
+      // Check for SSS slider - start drag mode
+      if (hitRegion.name === 'sss-slider' && eventType === 'start') {
+        this._carouselSliderDragging = true;
+        this._carouselSliderType = 'sss';
+        this._carouselSliderRegion = hitRegion.extra;
+        // Also update slider immediately
+        this._handleCarouselSliderDrag(clientX, clientY);
+        return;
+      }
+
+      // Handle other hits
+      this.carousel.handlePhoneTouch(hitRegion.name, hitRegion.extra);
+    }
+  }
+
+  /**
+   * Handle carousel slider drag (phase or SSS)
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   */
+  _handleCarouselSliderDrag(clientX, clientY) {
+    if (!this._carouselSliderRegion || !this.carousel) return;
+
+    const canvasCoords = this._screenToPhoneCanvas(clientX, clientY);
+    if (!canvasCoords) return;
+
+    const { sliderX, sliderW, variantCount } = this._carouselSliderRegion;
+
+    // Calculate normalized position within slider (0-1)
+    const normalizedX = Math.max(0, Math.min(1, (canvasCoords.x - sliderX) / sliderW));
+
+    // Route to appropriate handler based on slider type
+    if (this._carouselSliderType === 'sss') {
+      this.carousel.handleSSSSliderDrag(normalizedX, variantCount);
+    } else {
+      this.carousel.handlePhaseSliderDrag(normalizedX);
+    }
+  }
+
+  /**
+   * Update the floating holographic carousel title
+   * @param {string} name - Geometry name (e.g., "Crystal", "Moon")
+   * @param {string} variant - Variant name (e.g., "Quartz", "Phase")
+   */
+  _updateCarouselTitle(name, variant) {
+    if (this.elements.carouselTitleName) {
+      this.elements.carouselTitleName.textContent = name.toUpperCase();
+    }
+    if (this.elements.carouselTitleVariant) {
+      this.elements.carouselTitleVariant.textContent = variant;
+    }
   }
 
   /**
@@ -920,6 +1202,66 @@ class EmoAssistant {
     if (this.elements.responseProgressFill) {
       this.elements.responseProgressFill.style.width = `${progress * 100}%`;
     }
+  }
+
+  /**
+   * Show debug overlay for phone touch bounds
+   * @param {Object} bounds - Phone screen bounds
+   */
+  _showPhoneBoundsDebug(bounds) {
+    // Remove any existing debug overlay
+    const existing = document.getElementById('phone-bounds-debug');
+    if (existing) existing.remove();
+
+    if (!bounds) return;
+
+    // Create debug overlay
+    const debug = document.createElement('div');
+    debug.id = 'phone-bounds-debug';
+    debug.style.cssText = `
+      position: fixed;
+      left: ${bounds.left}px;
+      top: ${bounds.top}px;
+      width: ${bounds.width}px;
+      height: ${bounds.height}px;
+      border: 3px solid lime;
+      background: rgba(0, 255, 0, 0.1);
+      pointer-events: none;
+      z-index: 9999;
+      box-sizing: border-box;
+    `;
+
+    // Add center crosshair
+    const crosshair = document.createElement('div');
+    crosshair.style.cssText = `
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 20px;
+      height: 20px;
+      margin-left: -10px;
+      margin-top: -10px;
+      border: 2px solid lime;
+      border-radius: 50%;
+    `;
+    debug.appendChild(crosshair);
+
+    // Add label
+    const label = document.createElement('div');
+    label.style.cssText = `
+      position: absolute;
+      bottom: -25px;
+      left: 0;
+      color: lime;
+      font-size: 12px;
+      font-family: monospace;
+      white-space: nowrap;
+    `;
+    label.textContent = `Phone bounds: ${Math.round(bounds.width)}x${Math.round(bounds.height)} @ (${Math.round(bounds.centerX)}, ${Math.round(bounds.centerY)})`;
+    debug.appendChild(label);
+
+    document.body.appendChild(debug);
+    console.log('Phone bounds debug overlay shown');
   }
 }
 

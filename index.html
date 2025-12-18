@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Emo - Holographic AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles/main.css">
 </head>
 <body>
@@ -87,12 +90,12 @@
     <!-- Cancel button - separate from phone for reliable clicks -->
     <button id="cancel-btn" class="hidden" aria-label="Cancel">✕</button>
 
-    <!-- Carousel (hidden by default) -->
-    <div id="carousel" class="hidden">
-      <div id="carousel-left" class="carousel-preview"></div>
-      <div id="carousel-center"></div>
-      <div id="carousel-right" class="carousel-preview"></div>
-      <div id="variant-dots"></div>
+    <!-- Carousel UI now renders on 3D phone screen -->
+
+    <!-- Floating holographic title - projected above emitter during carousel -->
+    <div id="carousel-title" class="hidden">
+      <div class="title-name">CRYSTAL</div>
+      <div class="title-variant">Quartz</div>
     </div>
 
     <!-- Caption (now uses integrated projector screen) -->
