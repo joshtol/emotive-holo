@@ -242,6 +242,9 @@ export class GeometryCarousel {
     // Add class to dim the mascot
     document.getElementById('hologram-container').classList.add('carousel-active');
 
+    // Float mascot up during selection
+    this._animateMascotFloat(true);
+
     this.updateDisplay();
   }
 
@@ -251,6 +254,54 @@ export class GeometryCarousel {
 
     // Remove dim class
     document.getElementById('hologram-container').classList.remove('carousel-active');
+
+    // Float mascot back down to normal position
+    this._animateMascotFloat(false);
+  }
+
+  /**
+   * Animate mascot floating up (for selection) or down (to normal)
+   * @param {boolean} up - True to float up, false to return to normal
+   */
+  _animateMascotFloat(up) {
+    const controls = this.mascot?.core3D?.renderer?.controls;
+    if (!controls) return;
+
+    // Store original target Y on first call
+    if (this._originalTargetY === undefined) {
+      this._originalTargetY = controls.target.y;
+    }
+
+    // Float offset - how much higher to raise during selection
+    const floatOffset = 0.15;
+    const targetY = up ? this._originalTargetY - floatOffset : this._originalTargetY;
+    const startY = controls.target.y;
+    const duration = 400; // ms
+    const startTime = performance.now();
+
+    // Cancel any existing animation
+    if (this._floatAnimationId) {
+      cancelAnimationFrame(this._floatAnimationId);
+    }
+
+    const animate = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+
+      // Ease out cubic for smooth deceleration
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      controls.target.y = startY + (targetY - startY) * eased;
+      controls.update();
+
+      if (progress < 1) {
+        this._floatAnimationId = requestAnimationFrame(animate);
+      } else {
+        this._floatAnimationId = null;
+      }
+    };
+
+    animate();
   }
 
   navigate(direction) {

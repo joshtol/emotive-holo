@@ -33,9 +33,10 @@ export class LayoutScaler {
       cancelBottom: 180,
       cancelOffsetX: 100,
       phoneFontSize: 0.8,
-      emitterScale: 0.26,
-      emitterY: -0.52,
-      cameraDistance: 1.6
+      emitterScale: 0.27,
+      emitterY: -0.50,
+      cameraDistance: 1.6,
+      mascotYOffset: 0  // No offset on desktop
     };
 
     // Mobile values (centered, scaled down)
@@ -50,9 +51,10 @@ export class LayoutScaler {
       cancelBottom: 160,
       cancelOffsetX: 80,
       phoneFontSize: 0.75,
-      emitterScale: 0.22,
-      emitterY: -0.55,
-      cameraDistance: 2.0
+      emitterScale: 0.27,
+      emitterY: -0.48,
+      cameraDistance: 2.0,
+      mascotYOffset: 0.15  // Raise mascot on mobile
     };
 
     // Shadow shapes defined as offsets from layout center and shadow bottom
@@ -89,14 +91,15 @@ export class LayoutScaler {
     // Shadow scale factors - mobile shadow is bigger relative to viewport
     // because the emitter takes up more screen space
     this.shadowScale = {
-      desktop: 1.0,
-      mobile: 2.8
+      desktop: 1.05,
+      mobile: 3.5
     };
 
     // Shadow anchor Y position (bottom of contact shadow in viewBox coords)
+    // Moved up to match emitter position change
     this.shadowBottomY = {
       desktop: 98,
-      mobile: 97  // Slightly higher on mobile
+      mobile: 96
     };
 
     // Bind resize handler
@@ -165,14 +168,15 @@ export class LayoutScaler {
   }
 
   /**
-   * Get 3D parameters for the emitter
+   * Get 3D parameters for the emitter and mascot
    */
   get3DParams() {
     const config = this.isMobile ? this.mobile : this.desktop;
     return {
       emitterScale: config.emitterScale,
       emitterY: config.emitterY,
-      cameraDistance: config.cameraDistance
+      cameraDistance: config.cameraDistance,
+      mascotYOffset: config.mascotYOffset || 0
     };
   }
 
@@ -204,6 +208,7 @@ export class LayoutScaler {
     const contact = document.getElementById('shadow-contact');
     const penumbra = document.getElementById('shadow-penumbra');
     const ambient = document.getElementById('shadow-ambient');
+    const reflection = document.getElementById('table-reflection');
 
     // Get current layout center X (this is where the emitter is positioned)
     const config = this.isMobile ? this.mobile : this.desktop;
@@ -221,6 +226,16 @@ export class LayoutScaler {
     if (contact) contact.setAttribute('points', contactPoints);
     if (penumbra) penumbra.setAttribute('points', penumbraPoints);
     if (ambient) ambient.setAttribute('points', ambientPoints);
+
+    // Update table reflection position - ellipse centered at layout center
+    if (reflection) {
+      reflection.setAttribute('cx', layoutCenterX);
+      // Scale the reflection ellipse for mobile (larger relative to viewport)
+      const rxScale = this.isMobile ? 2.2 : 1.0;
+      const ryScale = this.isMobile ? 2.0 : 1.0;
+      reflection.setAttribute('rx', 18 * rxScale);
+      reflection.setAttribute('ry', 6 * ryScale);
+    }
   }
 
   /**

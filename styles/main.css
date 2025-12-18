@@ -75,7 +75,7 @@ body {
   height: 100%;
   background-image: url('/assets/backgrounds/living-room.jpg');
   background-size: cover;
-  background-position: center bottom;
+  background-position: 67% bottom;  /* Align with layout center (rule of thirds) */
   background-repeat: no-repeat;
   z-index: 0;
   transition: filter 0.5s ease;
@@ -859,7 +859,7 @@ body {
   align-items: center;
   justify-content: center;
   transition: all var(--duration-fast) var(--ease-out);
-  z-index: 20;
+  z-index: 1100;  /* Above phone-touch-overlay (z-index: 1000) */
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
@@ -933,15 +933,22 @@ body {
   display: none;
 }
 
+/* Blur background when carousel is active - similar to meditation */
+#hologram-container.carousel-active #background-layer {
+  filter: blur(10px) brightness(0.6);
+  transition: filter var(--duration-slow) var(--ease-out);
+}
+
 /* Dim projector and phone when carousel is active */
 #hologram-container.carousel-active #projector-base {
   opacity: 0.5;
-  transition: opacity var(--duration-slow) var(--ease-out);
+  filter: blur(4px);
+  transition: opacity var(--duration-slow) var(--ease-out), filter var(--duration-slow) var(--ease-out);
 }
 
 #hologram-container.carousel-active #holo-phone {
   opacity: 0.3;
-  filter: blur(2px);
+  filter: blur(4px);
   transition: opacity var(--duration-slow) var(--ease-out), filter var(--duration-slow) var(--ease-out);
 }
 

@@ -7,8 +7,8 @@
  */
 
 import * as THREE from 'three';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 export class HoloPhone {
   constructor(scene, camera, renderer, options = {}) {
@@ -29,8 +29,8 @@ export class HoloPhone {
     this._animationFrame = 0;
 
     // UV calibration values (can be adjusted in grid mode)
-    this._uvMin = { x: 0.04, y: 0.05 };
-    this._uvMax = { x: 0.36, y: 0.77 };
+    this._uvMin = { x: 0.04, y: 0.27 };
+    this._uvMax = { x: 0.36, y: 0.91 };
     this._uvStep = 0.01;
     this._activeControl = 'minY'; // minX, minY, maxX, maxY
 
@@ -39,9 +39,12 @@ export class HoloPhone {
       scale: options.scale || 0.08,
       position: options.position || { x: 0.25, y: -0.58, z: 0.15 },
       rotation: options.rotation || { x: 0, y: -0.3, z: 0 },
-      // Canvas in portrait to match phone screen UV (taller than wide)
-      screenWidth: 256,
-      screenHeight: 512,
+      // Canvas aspect ratio must match screen UV region AFTER 90° rotation
+      // UV region: x(0.04-0.36)=0.32, y(0.05-0.77)=0.72
+      // After 90° CW rotation: width=0.72, height=0.32 → aspect ~2.25:1
+      // Canvas is drawn in this rotated orientation (landscape for phone display)
+      screenWidth: 512,
+      screenHeight: 228,  // 512 / 2.25 ≈ 228
       ...options
     };
 
@@ -453,31 +456,30 @@ export class HoloPhone {
   }
 
   /**
-   * Load the phone model
+   * Load the phone model (GLB format with Draco compression)
    */
   async load() {
     return new Promise((resolve, reject) => {
-      const mtlLoader = new MTLLoader();
-      mtlLoader.setPath(`${this.options.basePath}/`);
+      // Set up Draco decoder for compressed GLB
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
 
-      mtlLoader.load('phone.mtl', (materials) => {
-        materials.preload();
+      const gltfLoader = new GLTFLoader();
+      gltfLoader.setDRACOLoader(dracoLoader);
 
-        const objLoader = new OBJLoader();
-        objLoader.setMaterials(materials);
-        objLoader.setPath(`${this.options.basePath}/`);
+      gltfLoader.load(
+        `${this.options.basePath}/phone.glb`,
+        (gltf) => {
+          this.mesh = gltf.scene;
 
-        objLoader.load('phone.obj', (obj) => {
-          this.mesh = obj;
-
-          // Load texture with proper settings
-          const textureLoader = new THREE.TextureLoader();
-          const diffuseTexture = textureLoader.load(`${this.options.basePath}/phone.png`, (tex) => {
-            tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-            tex.minFilter = THREE.LinearMipmapLinearFilter;
-            tex.magFilter = THREE.LinearFilter;
-            tex.generateMipmaps = true;
-            tex.colorSpace = THREE.SRGBColorSpace;
+          // Get the embedded texture from the GLB
+          let diffuseTexture = null;
+          this.mesh.traverse((child) => {
+            if (child.isMesh && child.material && child.material.map) {
+              diffuseTexture = child.material.map;
+              diffuseTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+              diffuseTexture.colorSpace = THREE.SRGBColorSpace;
+            }
           });
 
           // Log mesh names to help identify screen
@@ -489,13 +491,11 @@ export class HoloPhone {
           });
 
           // Create shader material that composites screen canvas over phone texture
-          // Screen UV region: approximately x: 0.02-0.38, y: 0.35-0.95 based on texture layout
           this.screenMaterial = new THREE.ShaderMaterial({
             uniforms: {
               phoneTexture: { value: diffuseTexture },
               screenTexture: { value: this.screenTexture },
               // UV bounds of screen region in the phone texture
-              // Use instance values for live calibration
               screenUVMin: { value: new THREE.Vector2(this._uvMin.x, this._uvMin.y) },
               screenUVMax: { value: new THREE.Vector2(this._uvMax.x, this._uvMax.y) }
             },
@@ -533,9 +533,9 @@ export class HoloPhone {
                 if (inScreen) {
                   // Map phone UV to screen texture UV (0-1 range)
                   vec2 screenUV = (vUv - screenUVMin) / (screenUVMax - screenUVMin);
-                  // Rotate 90 degrees CW for landscape display: swap and flip
+                  // Rotate 90 degrees CW for landscape display and flip to correct mirror
                   float temp = screenUV.x;
-                  screenUV.x = screenUV.y;
+                  screenUV.x = 1.0 - screenUV.y;  // Flip X to fix mirror
                   screenUV.y = 1.0 - temp;
                   vec4 screenColor = texture2D(screenTexture, screenUV);
 
@@ -577,7 +577,7 @@ export class HoloPhone {
           // Add to scene
           this.scene.add(this.mesh);
 
-          console.log('HoloPhone loaded with screen shader');
+          console.log('HoloPhone loaded with screen shader (GLB)');
           resolve(this.mesh);
         },
         // Progress
@@ -589,72 +589,10 @@ export class HoloPhone {
         },
         // Error
         (error) => {
-          console.error('Error loading phone OBJ:', error);
+          console.error('Error loading phone GLB:', error);
           reject(error);
-        });
-      },
-      undefined,
-      // MTL error - try loading without materials
-      (error) => {
-        console.warn('Phone MTL load failed, loading without materials:', error);
-        this._loadWithoutMaterials().then(resolve).catch(reject);
-      });
-    });
-  }
-
-  /**
-   * Fallback loader without MTL
-   */
-  async _loadWithoutMaterials() {
-    return new Promise((resolve, reject) => {
-      const objLoader = new OBJLoader();
-      objLoader.setPath(`${this.options.basePath}/`);
-
-      objLoader.load('phone.obj', (obj) => {
-        this.mesh = obj;
-
-        // Load texture
-        const textureLoader = new THREE.TextureLoader();
-        const texture = textureLoader.load(`${this.options.basePath}/phone.png`, (tex) => {
-          tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-          tex.colorSpace = THREE.SRGBColorSpace;
-        });
-
-        // Basic material
-        const material = new THREE.MeshStandardMaterial({
-          map: texture,
-          roughness: 0.3,
-          metalness: 0.7
-        });
-
-        this.mesh.traverse((child) => {
-          if (child.isMesh) {
-            child.material = material.clone();
-          }
-        });
-
-        // Apply transforms
-        this.mesh.scale.setScalar(this.options.scale);
-        this.mesh.position.set(
-          this.options.position.x,
-          this.options.position.y,
-          this.options.position.z
-        );
-        this.mesh.rotation.set(
-          this.options.rotation.x,
-          this.options.rotation.y,
-          this.options.rotation.z
-        );
-
-        this.scene.add(this.mesh);
-        console.log('HoloPhone loaded (without MTL)');
-        resolve(this.mesh);
-      },
-      undefined,
-      (error) => {
-        console.error('Error loading phone OBJ:', error);
-        reject(error);
-      });
+        }
+      );
     });
   }
 

@@ -6,10 +6,11 @@
 import { EmotiveMascot3D } from '@joshtol/emotive-engine/3d';
 import { VoiceInput } from './voice-input.js';
 import { ClaudeClient } from './claude-client.js';
-import { ElevenLabsTTS } from './elevenlabs-tts.js';
+import { NativeTTS } from './native-tts.js';
 import { MeditationController } from './meditation.js';
 import { GeometryCarousel } from './carousel.js';
 import { EmitterBase } from './emitter-base.js';
+import { HoloPhone } from './holo-phone.js';
 import { layoutScaler } from './layout-scaler.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
@@ -59,6 +60,9 @@ class EmoAssistant {
 
     // Default screen text
     this.DEFAULT_SCREEN_TEXT = 'Hold to speak';
+
+    // Phone touch overlay reference (created in setupEventListeners)
+    this._phoneOverlay = null;
   }
 
   async init() {
@@ -89,10 +93,13 @@ class EmoAssistant {
     this.mascot.start();
 
     // Keep OrbitControls target at origin (where mascot is) so rotation keeps mascot centered
-    // On desktop, shift target down so mascot renders higher on screen
+    // Shift target to adjust mascot vertical position on screen
+    // Negative Y = mascot appears higher, Positive Y = mascot appears lower
     const controls = this.mascot.core3D?.renderer?.controls;
     if (controls) {
-      const targetY = layoutScaler.isMobile ? 0 : -0.15;
+      // Desktop: shift down (-0.15) so mascot renders higher
+      // Mobile: shift down (-0.12) to raise mascot slightly above emitter
+      const targetY = layoutScaler.isMobile ? -0.12 : -0.15;
       controls.target.set(0, targetY, 0);
       controls.update();
     }
@@ -104,6 +111,11 @@ class EmoAssistant {
     const camera = this.mascot.core3D?.renderer?.camera;
     const renderer = this.mascot.core3D?.renderer?.renderer;
     if (scene && camera && renderer) {
+      // Enable ACES Filmic tone mapping for better HDR handling
+      // This gives more realistic color response and prevents blown highlights
+      const THREE = await import('three');
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;  // Balanced exposure for realistic colors
       // Emitter uses realistic proportions from layout scaler
       this.emitterBase = new EmitterBase(scene, camera, renderer, {
         scale: layout3D.emitterScale,
@@ -111,6 +123,28 @@ class EmoAssistant {
         rotation: { x: 0, y: 0, z: 0 }
       });
       await this.emitterBase.load();
+
+      // Initialize 3D phone display in the emitter's scene
+      // Phone in front of emitter, resting on gold lip, tilted 5 deg away from camera
+      // Scale phone proportionally to emitter (0.25 was tuned for desktop emitterScale 0.32)
+      const phoneScaleRatio = layout3D.emitterScale / 0.32;
+      const phoneZRatio = phoneScaleRatio; // Z position also scales with emitter
+      this.holoPhone3D = new HoloPhone(this.emitterBase.scene, camera, renderer, {
+        // Phone should be roughly 5-6 inches wide (landscape), close to emitter base width
+        scale: 0.25 * phoneScaleRatio,
+        // Phone sits on the gold shelf, leaning back against the emitter body
+        // Z controls distance from emitter center, Y sets vertical position
+        // Phone top edge touches emitter side while angled
+        position: { x: 0, y: layout3D.emitterY + 0.06 * phoneScaleRatio, z: 0.28 * phoneZRatio },
+        // Landscape (Z=PI/2), tilted back to lean against emitter (negative X tilts top toward emitter)
+        rotation: { x: -0.18, y: 0, z: Math.PI / 2 }
+      });
+      await this.holoPhone3D.load();
+
+      // Hide CSS phone element since we're using 3D now
+      if (this.elements.holoPhone) {
+        this.elements.holoPhone.style.display = 'none';
+      }
 
       // Connect emitter to layoutScaler for dynamic shadow sizing
       // This allows shadows to scale proportionately to the actual rendered emitter
@@ -127,6 +161,10 @@ class EmoAssistant {
       this.mascot.core3D.renderer.render = (params) => {
         // Render main scene first
         originalRender(params);
+        // Update and render 3D phone
+        if (this.holoPhone3D) {
+          this.holoPhone3D.update(0.016);
+        }
         // Then render emitter on top with fixed camera
         if (this.emitterBase) {
           this.emitterBase.render();
@@ -153,7 +191,7 @@ class EmoAssistant {
     // Initialize modules
     this.voiceInput = new VoiceInput();
     this.claude = new ClaudeClient();
-    this.tts = new ElevenLabsTTS(this.mascot);
+    this.tts = new NativeTTS(this.mascot);
     this.meditation = new MeditationController(this.mascot, this.tts, this.elements);
     this.carousel = new GeometryCarousel(this.mascot, this.elements.container);
 
@@ -180,36 +218,74 @@ class EmoAssistant {
   }
 
   setupEventListeners() {
-    // Push to talk - works on the holographic phone display
-    const pttTargets = [this.elements.holoPhone].filter(Boolean);
+    // Push to talk - create an overlay div for the phone region
+    // This intercepts events before they reach the canvas/OrbitControls
+    const phoneOverlay = document.createElement('div');
+    phoneOverlay.id = 'phone-touch-overlay';
+    phoneOverlay.style.cssText = `
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 30vh;
+      z-index: 1000;
+      touch-action: none;
+      cursor: pointer;
+    `;
+    document.body.appendChild(phoneOverlay);
+    this._phoneOverlay = phoneOverlay;
+    console.log('Phone overlay created and added to body');
 
-    pttTargets.forEach(target => {
-      // Mouse events
-      target.addEventListener('mousedown', () => this.startListening());
-      target.addEventListener('mouseup', () => this.stopListening());
-      target.addEventListener('mouseleave', () => {
-        if (this.state === 'listening') this.stopListening();
-      });
+    // Mouse events on overlay
+    phoneOverlay.addEventListener('mousedown', (e) => {
+      console.log('MOUSEDOWN on overlay');
+      e.preventDefault();
+      e.stopPropagation();
+      this.startListening();
+    });
 
-      // Touch support - use passive: false to allow preventDefault
-      target.addEventListener('touchstart', (e) => {
+    phoneOverlay.addEventListener('mouseup', () => {
+      console.log('MOUSEUP on overlay');
+      if (this.state === 'listening') this.stopListening();
+    });
+
+    phoneOverlay.addEventListener('mouseleave', () => {
+      if (this.state === 'listening') this.stopListening();
+    });
+
+    // Touch events on overlay
+    phoneOverlay.addEventListener('touchstart', (e) => {
+      console.log('TOUCHSTART on overlay, touches:', e.touches.length);
+      e.preventDefault();
+      e.stopPropagation();
+      this.startListening();
+    }, { passive: false });
+
+    phoneOverlay.addEventListener('touchend', (e) => {
+      console.log('TOUCHEND on overlay, state:', this.state);
+      e.preventDefault();
+      if (this.state === 'listening') this.stopListening();
+    }, { passive: false });
+
+    phoneOverlay.addEventListener('touchcancel', (e) => {
+      console.log('TOUCHCANCEL on overlay');
+      e.preventDefault();
+      if (this.state === 'listening') this.stopListening();
+    }, { passive: false });
+
+    // Fallback: CSS phone element (if still visible)
+    if (this.elements.holoPhone) {
+      this.elements.holoPhone.addEventListener('mousedown', () => this.startListening());
+      this.elements.holoPhone.addEventListener('mouseup', () => this.stopListening());
+      this.elements.holoPhone.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        e.stopPropagation();
         this.startListening();
       }, { passive: false });
-
-      target.addEventListener('touchend', (e) => {
+      this.elements.holoPhone.addEventListener('touchend', (e) => {
         e.preventDefault();
-        e.stopPropagation();
         this.stopListening();
       }, { passive: false });
-
-      // Also handle touchcancel (finger leaves screen unexpectedly)
-      target.addEventListener('touchcancel', (e) => {
-        e.preventDefault();
-        if (this.state === 'listening') this.stopListening();
-      }, { passive: false });
-    });
+    }
 
     // Keyboard shortcut (spacebar for voice, escape to cancel)
     document.addEventListener('keydown', (e) => {
@@ -272,8 +348,17 @@ class EmoAssistant {
     // Voice input error
     this.voiceInput.onError = (error) => {
       console.error('Voice input error:', error);
-      this.setStatus('Voice error');
+      // Show more helpful error messages
+      if (error === 'not-allowed' || error === 'permission-denied') {
+        this.setScreen('Microphone access denied', '');
+      } else if (error === 'not-supported') {
+        this.setScreen('Voice not supported', '');
+      } else {
+        this.setScreen('Voice error: ' + error, '');
+      }
       this.setState('idle');
+      // Schedule screen to revert to default
+      this.scheduleScreenRevert();
     };
 
     // Cancel button - abort current AI response (now separate from phone)
@@ -287,8 +372,9 @@ class EmoAssistant {
   }
 
   startListening() {
+    console.log('startListening called, current state:', this.state);
     if (this.state !== 'idle') {
-      // Don't spam console - this is expected when clicking during other states
+      console.log('Not idle, ignoring startListening');
       return;
     }
 
@@ -309,12 +395,23 @@ class EmoAssistant {
     this.setScreen('Listening...', 'listening');
 
     this.mascot.feel('attentive, alert');
-    this.voiceInput.start();
+
+    // Start voice recognition
+    console.log('Starting voice input...');
+    try {
+      this.voiceInput.start();
+    } catch (e) {
+      console.error('Exception starting voice:', e);
+      this.setScreen('Voice failed: ' + e.message, '');
+      this.setState('idle');
+      this.scheduleScreenRevert();
+    }
   }
 
   stopListening() {
+    console.log('stopListening called, current state:', this.state);
     if (this.state !== 'listening') {
-      // Don't spam console - this is expected when releasing after state changed
+      console.log('Not in listening state, ignoring stopListening');
       return;
     }
 
@@ -324,6 +421,8 @@ class EmoAssistant {
       this.elements.holoPhone.classList.remove('listening');
     }
     this.elements.voiceIndicator.classList.add('hidden');
+
+    console.log('Stopping voice input...');
     this.voiceInput.stop();
 
     // Update screen
@@ -557,6 +656,11 @@ class EmoAssistant {
     this.clearIdleRevert();
     this.clearScreenRevert();
 
+    // Hide the phone overlay so carousel items can be clicked
+    if (this._phoneOverlay) {
+      this._phoneOverlay.style.display = 'none';
+    }
+
     this.setState('carousel');
     this.setScreen('Select a shape', '');
     this.carousel.show();
@@ -566,6 +670,11 @@ class EmoAssistant {
     this.carousel.hide();
     this.setState('idle');
     this.resetScreen();
+
+    // Re-show the phone overlay
+    if (this._phoneOverlay) {
+      this._phoneOverlay.style.display = 'block';
+    }
 
     // Don't schedule idle revert if user manually selected something
     // They chose it deliberately, so keep it until they interact again
@@ -598,6 +707,13 @@ class EmoAssistant {
    * @param {string} state - CSS class state ('listening', 'speaking', or '')
    */
   setScreen(text, state) {
+    // Update 3D phone if available
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setText(text);
+      this.holoPhone3D.setState(state || 'idle');
+    }
+
+    // Also update CSS phone as fallback
     if (this.elements.screenText) {
       this.elements.screenText.textContent = text;
     }

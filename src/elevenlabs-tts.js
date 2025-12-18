@@ -17,10 +17,26 @@ export class ElevenLabsTTS {
     // Progress tracking callback
     this.onProgress = null; // (progress: 0-1) => void
 
-    // Word progress callback - reveals text progressively
-    this.onWordProgress = null; // (visibleText: string, fullText: string) => void
-    this._currentText = '';
-    this._words = [];
+    // Chunk-based CC-style text display
+    // Shows a chunk of text, waits for TTS to catch up, then advances
+    this.onChunkChange = null; // (chunkText: string, chunkIndex: number, totalChunks: number) => void
+    this._chunks = [];
+    this._currentChunkIndex = 0;
+    this._wordsPerChunk = 12; // ~2-3 lines worth of text
+  }
+
+  /**
+   * Split text into chunks for CC-style display
+   */
+  _splitIntoChunks(text) {
+    const words = text.split(/\s+/);
+    const chunks = [];
+
+    for (let i = 0; i < words.length; i += this._wordsPerChunk) {
+      chunks.push(words.slice(i, i + this._wordsPerChunk).join(' '));
+    }
+
+    return chunks;
   }
 
   async speak(text) {
@@ -29,9 +45,14 @@ export class ElevenLabsTTS {
     try {
       this.isSpeaking = true;
 
-      // Store text for progressive reveal
-      this._currentText = text;
-      this._words = text.split(/\s+/);
+      // Split text into chunks for CC-style display
+      this._chunks = this._splitIntoChunks(text);
+      this._currentChunkIndex = 0;
+
+      // Show first chunk immediately
+      if (this.onChunkChange && this._chunks.length > 0) {
+        this.onChunkChange(this._chunks[0], 0, this._chunks.length);
+      }
 
       // Fetch audio from ElevenLabs via backend
       const response = await fetch(this.endpoint, {
@@ -107,39 +128,36 @@ export class ElevenLabsTTS {
         // Update mascot - modulate bloom and emission warmth based on voice amplitude
         if (this.mascot && this.mascot.setIntensity) {
           this.mascot.setIntensity(intensity);
-          // Debug: log every ~30 frames
-          if (Math.random() < 0.03) {
-            console.log(`[TTS] amplitude=${normalized.toFixed(2)} intensity=${intensity.toFixed(2)}`);
-          }
         }
 
         this.animationFrame = requestAnimationFrame(trackAmplitude);
       };
 
-      // Progress tracking with word reveal
-      const trackProgress = () => {
-        if (!this.isSpeaking || !audio.duration) return;
+      // CC-style chunk tracking
+      const trackChunks = () => {
+        if (!this.isSpeaking || !audio.duration || this._chunks.length === 0) return;
+
         const progress = audio.currentTime / audio.duration;
+
         if (this.onProgress) {
           this.onProgress(progress);
         }
 
-        // Progressive word reveal with sliding window
-        if (this.onWordProgress && this._words.length > 0) {
-          // Calculate current word index based on progress
-          // Add slight lead time so words appear just before they're spoken
-          const adjustedProgress = Math.min(1, progress * 1.1 + 0.05);
-          const currentWordIndex = Math.floor(adjustedProgress * this._words.length);
+        // Calculate which chunk we should be on based on progress
+        // Each chunk represents an equal portion of the audio
+        const expectedChunkIndex = Math.floor(progress * this._chunks.length);
 
-          // Show a sliding window of ~5-6 words for single-line display
-          const windowSize = 6;
-          const leadWords = 2;  // Show 2 words ahead of current
-          const startIndex = Math.max(0, currentWordIndex - (windowSize - leadWords));
-          const endIndex = Math.min(this._words.length, startIndex + windowSize);
-
-          const visibleWords = this._words.slice(startIndex, endIndex);
-          const visibleText = visibleWords.join(' ');
-          this.onWordProgress(visibleText, this._currentText, currentWordIndex);
+        // Only advance to next chunk, never go backwards
+        // This ensures text stays visible until TTS catches up
+        if (expectedChunkIndex > this._currentChunkIndex && expectedChunkIndex < this._chunks.length) {
+          this._currentChunkIndex = expectedChunkIndex;
+          if (this.onChunkChange) {
+            this.onChunkChange(
+              this._chunks[this._currentChunkIndex],
+              this._currentChunkIndex,
+              this._chunks.length
+            );
+          }
         }
       };
 
@@ -149,7 +167,7 @@ export class ElevenLabsTTS {
         trackAmplitude();
       };
 
-      audio.ontimeupdate = trackProgress;
+      audio.ontimeupdate = trackChunks;
 
       audio.onended = () => {
         console.log('TTS ended');

@@ -4,7 +4,8 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill //F //PID 56256)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(dir:*)"
     ]
   }
 }

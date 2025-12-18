@@ -7,12 +7,12 @@
  */
 
 import * as THREE from 'three';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 export class EmitterBase {
   constructor(scene, camera, renderer, options = {}) {
-    this.scene = scene;
+    this.mainScene = scene;  // Reference to main scene for env map capture
     this.camera = camera;  // Main camera - we'll track its zoom
     this.renderer = renderer;
     this.mesh = null;
@@ -29,6 +29,14 @@ export class EmitterBase {
     this._time = 0;
     this._nextArcTime = 0;
     this._glowColor = new THREE.Color(0x40e0d0);  // Default cyan, syncs with mascot
+
+    // Environment mapping - captures mascot scene for reflections
+    this.cubeCamera = null;
+    this.cubeRenderTarget = null;
+    this._envMapReady = false;
+    this._frameCount = 0;
+    this._envMapUpdateInterval = 2;  // Update every N frames for performance
+
     this.options = {
       basePath: '/assets/models/emitter',
       scale: options.scale || 0.15,
@@ -36,6 +44,10 @@ export class EmitterBase {
       rotation: options.rotation || { x: 0, y: 0, z: 0 },
       ...options
     };
+
+    // Create a SEPARATE scene for the emitter to avoid light conflicts
+    // The main scene has DirectionalLights whose targets can cause render errors
+    this.scene = new THREE.Scene();
 
     // Create a separate camera for the emitter
     // This camera will track the main camera's zoom level
@@ -45,43 +57,118 @@ export class EmitterBase {
       camera.near,
       camera.far
     );
-    // Set camera to only see layer 3 (emitter layer)
-    this.emitterCamera.layers.set(3);
     // Store initial camera distance for zoom tracking
     this._baseCameraZ = 3;
     this._initialMainCameraZ = null;
 
-    // Create dedicated lights for the emitter layer
+    // Setup lights for the emitter's own scene
     this.emitterLights = [];
     this._setupEmitterLights();
   }
 
   /**
-   * Setup dedicated lights for the emitter on layer 3
+   * Setup lights for the emitter's separate scene
+   * Since we have our own scene, we can use any light type safely
    */
   _setupEmitterLights() {
-    // Ambient light for base illumination
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    ambient.layers.enable(3);
+    // Ambient light - lower to increase contrast and depth
+    const ambient = new THREE.AmbientLight(0xfff8f0, 0.5);
     this.scene.add(ambient);
     this.emitterLights.push(ambient);
 
-    // Key light matching the background's window lighting
-    const keyLight = new THREE.DirectionalLight(0xfff8f0, 1.0);
-    keyLight.position.set(2.5, 3.5, -2.5);
-    keyLight.target.position.set(0, this.options.position.y, 0);
-    keyLight.layers.enable(3);
-
+    // Key light - warm window light from upper right (matching background)
+    const keyLight = new THREE.PointLight(0xfff4e8, 1.2, 0, 0);
+    keyLight.position.set(2.5, 3, -2);
     this.scene.add(keyLight);
-    this.scene.add(keyLight.target);
     this.emitterLights.push(keyLight);
 
-    // Fill light from front-left
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.25);
-    fillLight.position.set(-2, 1.5, 3);
-    fillLight.layers.enable(3);
+    // Fill light from front-left - softer to maintain shadows
+    const fillLight = new THREE.PointLight(0xffffff, 0.3, 0, 0);
+    fillLight.position.set(-2, 1, 3);
     this.scene.add(fillLight);
     this.emitterLights.push(fillLight);
+
+    // Subtle front fill for wood base readability
+    const frontFill = new THREE.PointLight(0xfff8f0, 0.25, 0, 0);
+    frontFill.position.set(0, -0.3, 3);
+    this.scene.add(frontFill);
+    this.emitterLights.push(frontFill);
+
+    // Rim/back light - warm golden tint for edge definition, matching window light
+    const rimLight = new THREE.PointLight(0xffe4c0, 1.0, 0, 0);  // Warmer, stronger
+    rimLight.position.set(-1.5, 2, -3);
+    this.scene.add(rimLight);
+    this.emitterLights.push(rimLight);
+
+    // Secondary rim from opposite side - warm amber tint
+    const rimLight2 = new THREE.PointLight(0xffd8a8, 0.6, 0, 0);  // Warmer amber
+    rimLight2.position.set(2, 1, -2.5);
+    this.scene.add(rimLight2);
+    this.emitterLights.push(rimLight2);
+  }
+
+  /**
+   * Setup dynamic environment mapping from the mascot scene
+   * Creates a cube camera that captures the crystal/particles for reflections
+   *
+   * NOTE: Environment mapping disabled - causes render errors when capturing
+   * the main scene which has DirectionalLights with problematic targets.
+   * Using static background HDRI instead.
+   */
+  _setupEnvironmentMapping() {
+    // Dynamic cube camera disabled - causes render errors
+    // Load static background as environment for ambient lighting instead
+    this._loadBackgroundHDRI();
+  }
+
+  /**
+   * Load background image as environment map for scene ambient lighting
+   * This gives the emitter accurate color tones from the room
+   */
+  _loadBackgroundHDRI() {
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load('/assets/backgrounds/living-room.jpg', (texture) => {
+      // Set up as equirectangular environment
+      texture.mapping = THREE.EquirectangularReflectionMapping;
+      texture.colorSpace = THREE.SRGBColorSpace;
+
+      // Store for blending with dynamic cube map
+      this._backgroundEnvMap = texture;
+
+      console.log('Background environment map loaded');
+    });
+  }
+
+  /**
+   * Update environment map - disabled for now
+   * Dynamic cube camera capture causes render errors with the main scene's lights
+   */
+  updateEnvironmentMap() {
+    // No-op - using static HDRI instead of dynamic capture
+    // Apply background env map to materials once loaded
+    if (this._backgroundEnvMap && !this._envMapReady && this.mesh) {
+      this._applyEnvironmentToMaterials();
+      this._envMapReady = true;
+    }
+  }
+
+  /**
+   * Apply the environment map to all emitter materials
+   * Using static background HDRI for ambient reflections
+   */
+  _applyEnvironmentToMaterials() {
+    if (!this.mesh || !this._backgroundEnvMap) return;
+
+    this.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.envMap = this._backgroundEnvMap;
+        // Higher intensity for visible reflections
+        child.material.envMapIntensity = 1.2;
+        child.material.needsUpdate = true;
+      }
+    });
+
+    console.log('Background environment map applied to emitter');
   }
 
   /**
@@ -92,7 +179,7 @@ export class EmitterBase {
   _createBeamEffect() {
     // Create container for all beam elements
     this.beamGroup = new THREE.Group();
-    this.beamGroup.layers.set(3);
+    // No layer restriction - emitter has its own scene
 
     const emitterY = this.options.position.y;
     const beamHeight = 0.35;  // Shorter - fades before crystal
@@ -113,7 +200,7 @@ export class EmitterBase {
       uniforms: {
         time: { value: 0 },
         color: { value: this._glowColor.clone() },
-        opacity: { value: 0.55 }
+        opacity: { value: 0.72 }  // Increased for better visibility
       },
       vertexShader: `
         varying vec2 vUv;
@@ -201,7 +288,7 @@ export class EmitterBase {
 
     this.beam = new THREE.Mesh(beamGeometry, beamMaterial);
     this.beam.position.set(0, emitterY + 0.02 + beamHeight / 2, 0);
-    this.beam.layers.set(3);
+    // No layer restriction - emitter has its own scene
     this.beamGroup.add(this.beam);
 
     // Glowing aperture disc - like a projector lens with concentric rings
@@ -261,7 +348,7 @@ export class EmitterBase {
     this.apertureGlow = new THREE.Mesh(apertureGeometry, apertureMaterial);
     this.apertureGlow.position.set(0, emitterY + 0.012, 0);
     this.apertureGlow.rotation.x = -Math.PI / 2;  // Lay flat facing up
-    this.apertureGlow.layers.set(3);
+    // No layer restriction - emitter has its own scene
     this.beamGroup.add(this.apertureGlow);
 
     // Secondary larger outer glow ring
@@ -306,7 +393,7 @@ export class EmitterBase {
     this.outerGlow = new THREE.Mesh(outerGlowGeometry, outerGlowMaterial);
     this.outerGlow.position.set(0, emitterY + 0.011, 0);
     this.outerGlow.rotation.x = -Math.PI / 2;
-    this.outerGlow.layers.set(3);
+    // No layer restriction - emitter has its own scene
     this.beamGroup.add(this.outerGlow);
 
     this.scene.add(this.beamGroup);
@@ -345,7 +432,7 @@ export class EmitterBase {
     });
 
     const arc = new THREE.Line(arcGeometry, arcMaterial);
-    arc.layers.set(3);
+    // No layer restriction - emitter has its own scene
     arc.userData = {
       lifetime: 0.08 + Math.random() * 0.12,
       age: 0
@@ -448,29 +535,162 @@ export class EmitterBase {
 
   async load() {
     return new Promise((resolve, reject) => {
-      const mtlLoader = new MTLLoader();
-      mtlLoader.setPath(`${this.options.basePath}/`);
+      // Setup Draco decoder for compressed GLB
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
 
-      mtlLoader.load('emitter.mtl', (materials) => {
-        materials.preload();
+      const gltfLoader = new GLTFLoader();
+      gltfLoader.setDRACOLoader(dracoLoader);
 
-        // Fix texture path - MTL references wrong filename
-        // Override to use the actual texture file (emitter.png)
-        Object.values(materials.materials).forEach(material => {
-          if (material.map) {
-            const textureLoader = new THREE.TextureLoader();
-            material.map = textureLoader.load(`${this.options.basePath}/emitter.png`);
-            material.map.wrapS = THREE.RepeatWrapping;
-            material.map.wrapT = THREE.RepeatWrapping;
-          }
-        });
+      gltfLoader.load(
+        `${this.options.basePath}/emitter.glb`,
+        (gltf) => {
+          this.mesh = gltf.scene;
 
-        const objLoader = new OBJLoader();
-        objLoader.setMaterials(materials);
-        objLoader.setPath(`${this.options.basePath}/`);
+          // Extract diffuse texture from GLB for custom shader material
+          let diffuseTexture = null;
+          let bumpTexture = null;
 
-        objLoader.load('emitter.obj', (obj) => {
-          this.mesh = obj;
+          this.mesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+              if (child.material.map) {
+                diffuseTexture = child.material.map;
+                // Enable anisotropic filtering for sharper textures
+                diffuseTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+                diffuseTexture.minFilter = THREE.LinearMipmapLinearFilter;
+                diffuseTexture.magFilter = THREE.LinearFilter;
+                diffuseTexture.generateMipmaps = true;
+                diffuseTexture.colorSpace = THREE.SRGBColorSpace;
+              }
+              // GLB may have normal/bump map embedded
+              if (child.material.bumpMap) {
+                bumpTexture = child.material.bumpMap;
+              } else if (child.material.normalMap) {
+                // Use normal map as fallback if no bump map
+                bumpTexture = child.material.normalMap;
+              }
+            }
+          });
+
+          // Create PBR material with per-pixel material differentiation
+          const pbrMaterial = new THREE.MeshStandardMaterial({
+            map: diffuseTexture,
+            bumpMap: bumpTexture,
+            bumpScale: bumpTexture ? 0.57 : 0,  // Visible bump for wood grain texture
+            roughness: 0.5,
+            metalness: 0.1,
+            envMapIntensity: 1.2  // Higher for visible reflections
+          });
+
+          // Custom shader modification for per-pixel material properties
+          // Gold regions (high saturation yellow/orange) get metallic look
+          // Dark regions (wood) get high roughness
+          // Light regions (ceramic/porcelain) get medium glossy finish
+          pbrMaterial.onBeforeCompile = (shader) => {
+            // Add uniforms for material differentiation
+            shader.uniforms.goldThreshold = { value: 0.4 };
+
+            // Insert code before the roughnessFactor calculation
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <roughnessmap_fragment>',
+              `
+              #include <roughnessmap_fragment>
+
+              // Get diffuse color for material classification
+              vec3 texColor = texture2D(map, vMapUv).rgb;
+
+              // Calculate luminance and saturation
+              float lum = dot(texColor, vec3(0.299, 0.587, 0.114));
+              float maxC = max(max(texColor.r, texColor.g), texColor.b);
+              float minC = min(min(texColor.r, texColor.g), texColor.b);
+              float sat = (maxC - minC) / (maxC + 0.001);
+
+              // Detect gold: high saturation, warm hue (R > G > B)
+              bool isGold = sat > 0.3 && texColor.r > texColor.g * 0.9 && texColor.g > texColor.b * 1.2;
+
+              // Detect wood: darker, desaturated brown tones
+              bool isWood = lum < 0.35 && sat < 0.5 && texColor.r > texColor.b;
+
+              // Detect ceramic/porcelain: lighter, low saturation (relaxed threshold)
+              bool isCeramic = lum > 0.4 && sat < 0.35;
+
+              // Apply material properties based on surface type
+              if (isGold) {
+                roughnessFactor = 0.25;  // Shiny gold
+              } else if (isWood) {
+                roughnessFactor = 0.4;   // Polished lacquered wood
+              } else if (isCeramic) {
+                roughnessFactor = 0.3;   // Glossy ceramic
+              }
+              `
+            );
+
+            // Lighten wood regions by boosting diffuse color
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <color_fragment>',
+              `
+              #include <color_fragment>
+
+              // Lighten wood base color for better visibility
+              vec3 colorTexColor = texture2D(map, vMapUv).rgb;
+              float colorLum = dot(colorTexColor, vec3(0.299, 0.587, 0.114));
+              float colorMaxC = max(max(colorTexColor.r, colorTexColor.g), colorTexColor.b);
+              float colorMinC = min(min(colorTexColor.r, colorTexColor.g), colorTexColor.b);
+              float colorSat = (colorMaxC - colorMinC) / (colorMaxC + 0.001);
+
+              // Detect wood regions and lighten them
+              bool isWoodColor = colorLum < 0.35 && colorSat < 0.5 && colorTexColor.r > colorTexColor.b;
+              if (isWoodColor) {
+                // Lighten wood by 15% with warm tint
+                diffuseColor.rgb *= 1.15;
+                diffuseColor.rgb += vec3(0.03, 0.015, 0.005);  // Warm highlight
+              }
+              `
+            );
+
+            // Modify metalness based on surface type
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <metalnessmap_fragment>',
+              `
+              #include <metalnessmap_fragment>
+
+              // Re-calculate surface type for metalness
+              vec3 texColorMetal = texture2D(map, vMapUv).rgb;
+              float satMetal = (max(max(texColorMetal.r, texColorMetal.g), texColorMetal.b) -
+                               min(min(texColorMetal.r, texColorMetal.g), texColorMetal.b)) /
+                               (max(max(texColorMetal.r, texColorMetal.g), texColorMetal.b) + 0.001);
+
+              bool isGoldMetal = satMetal > 0.3 && texColorMetal.r > texColorMetal.g * 0.9 && texColorMetal.g > texColorMetal.b * 1.2;
+
+              if (isGoldMetal) {
+                metalnessFactor = 0.85;  // Highly metallic gold
+              } else {
+                metalnessFactor = 0.0;   // Non-metallic for wood/ceramic
+              }
+              `
+            );
+
+            // Store shader reference for live updates
+            pbrMaterial.userData.shader = shader;
+          };
+
+          // Store material reference for slider updates
+          this._emitterMaterial = pbrMaterial;
+          this._meshMaterials = [];
+
+          // Apply the material to all meshes
+          this.mesh.traverse((child) => {
+            if (child.isMesh) {
+              const mat = pbrMaterial.clone();
+              // Create a custom onBeforeCompile that stores the shader ref
+              mat.onBeforeCompile = (shader) => {
+                pbrMaterial.onBeforeCompile(shader);
+                mat.userData.shader = shader;
+              };
+              child.material = mat;
+              this._meshMaterials.push(mat);
+            }
+          });
 
           // Apply transforms - fixed orientation, sits flat on table
           this.mesh.scale.setScalar(this.options.scale);
@@ -485,14 +705,6 @@ export class EmitterBase {
             this.options.rotation.z
           );
 
-          // Put emitter ONLY on layer 3 for separate rendering
-          this.mesh.layers.set(3);
-          this.mesh.traverse((child) => {
-            if (child.isMesh) {
-              child.layers.set(3);
-            }
-          });
-
           // Add to scene
           this.scene.add(this.mesh);
 
@@ -505,7 +717,10 @@ export class EmitterBase {
           // Create the holographic beam effect
           this._createBeamEffect();
 
-          console.log('Emitter base loaded on layer 3');
+          // Setup dynamic environment mapping from mascot scene
+          this._setupEnvironmentMapping();
+
+          console.log('Emitter base loaded from GLB');
           resolve(this.mesh);
         },
         // Progress callback
@@ -517,80 +732,10 @@ export class EmitterBase {
         },
         // Error callback
         (error) => {
-          console.error('Error loading emitter OBJ:', error);
+          console.error('Error loading emitter GLB:', error);
           reject(error);
-        });
-      },
-      // MTL progress
-      undefined,
-      // MTL error - try loading without materials
-      (error) => {
-        console.warn('MTL load failed, loading OBJ without materials:', error);
-        this.loadWithoutMaterials().then(resolve).catch(reject);
-      });
-    });
-  }
-
-  async loadWithoutMaterials() {
-    return new Promise((resolve, reject) => {
-      const objLoader = new OBJLoader();
-      objLoader.setPath(`${this.options.basePath}/`);
-
-      objLoader.load('emitter.obj', (obj) => {
-        this.mesh = obj;
-
-        // Create a basic material with the texture
-        const textureLoader = new THREE.TextureLoader();
-        const texture = textureLoader.load(`${this.options.basePath}/emitter.png`);
-
-        obj.traverse((child) => {
-          if (child.isMesh) {
-            child.material = new THREE.MeshStandardMaterial({
-              map: texture,
-              metalness: 0.3,
-              roughness: 0.6
-            });
-            // Put ONLY on layer 3 for separate rendering
-            child.layers.set(3);
-          }
-        });
-
-        // Apply transforms - fixed orientation
-        this.mesh.scale.setScalar(this.options.scale);
-        this.mesh.position.set(
-          this.options.position.x,
-          this.options.position.y,
-          this.options.position.z
-        );
-        this.mesh.rotation.set(
-          this.options.rotation.x,
-          this.options.rotation.y,
-          this.options.rotation.z
-        );
-
-        // Put emitter ONLY on layer 3 for separate rendering
-        this.mesh.layers.set(3);
-
-        // Add to scene
-        this.scene.add(this.mesh);
-
-        // Initialize the emitter camera position
-        this._baseCameraZ = this.camera.position.length();
-        this._initialMainCameraZ = this._baseCameraZ;
-        this.emitterCamera.position.set(0, 0, this._baseCameraZ);
-        this.emitterCamera.lookAt(0, 0, 0);
-
-        // Create the holographic beam effect
-        this._createBeamEffect();
-
-        console.log('Emitter base loaded (without MTL) on layer 3');
-        resolve(this.mesh);
-      },
-      undefined,
-      (error) => {
-        console.error('Error loading emitter OBJ:', error);
-        reject(error);
-      });
+        }
+      );
     });
   }
 
@@ -629,12 +774,34 @@ export class EmitterBase {
     // Emitter camera stays completely fixed - no zoom or rotation tracking
     // This ensures the emitter stays in place while you explore the mascot
 
+    // Update dynamic environment map (captures mascot for reflections)
+    this.updateEnvironmentMap();
+
     // Update beam animation (assume ~60fps = 16ms per frame)
     this._updateBeam(0.016);
 
-    // Don't clear - render on top of existing scene
-    // The emitter camera is set to layer 3 in constructor
+    // Render emitter scene on top of main scene
+    // Must disable ALL auto-clearing to preserve the main scene's render
+    const autoClearWas = this.renderer.autoClear;
+    const autoClearColorWas = this.renderer.autoClearColor;
+    const autoClearDepthWas = this.renderer.autoClearDepth;
+    const autoClearStencilWas = this.renderer.autoClearStencil;
+
+    this.renderer.autoClear = false;
+    this.renderer.autoClearColor = false;
+    this.renderer.autoClearDepth = false;
+    this.renderer.autoClearStencil = false;
+
+    // Clear only the depth buffer so emitter renders on top correctly
+    this.renderer.clearDepth();
+
     this.renderer.render(this.scene, this.emitterCamera);
+
+    // Restore original settings
+    this.renderer.autoClear = autoClearWas;
+    this.renderer.autoClearColor = autoClearColorWas;
+    this.renderer.autoClearDepth = autoClearDepthWas;
+    this.renderer.autoClearStencil = autoClearStencilWas;
   }
 
   /**
@@ -809,6 +976,20 @@ export class EmitterBase {
         this.scene.remove(light);
       });
       this.emitterLights = [];
+    }
+
+    // Clean up environment mapping
+    if (this.cubeCamera) {
+      this.scene.remove(this.cubeCamera);
+      this.cubeCamera = null;
+    }
+    if (this.cubeRenderTarget) {
+      this.cubeRenderTarget.dispose();
+      this.cubeRenderTarget = null;
+    }
+    if (this._backgroundEnvMap) {
+      this._backgroundEnvMap.dispose();
+      this._backgroundEnvMap = null;
     }
 
     // Clean up camera
