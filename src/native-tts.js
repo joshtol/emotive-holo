@@ -14,6 +14,9 @@ export class NativeTTS {
     // Progress tracking callback
     this.onProgress = null; // (progress: 0-1) => void
 
+    // Character position callback for StoryDirector
+    this.onCharPosition = null; // (charIndex: number) => void
+
     // Chunk-based CC-style text display
     this.onChunkChange = null;
     this._chunks = [];
@@ -23,6 +26,11 @@ export class NativeTTS {
     // Voice selection
     this._preferredVoice = null;
     this._loadVoices();
+
+    // Stop TTS when page is closed/refreshed to prevent it continuing
+    window.addEventListener('beforeunload', () => {
+      this.stop();
+    });
   }
 
   /**
@@ -169,6 +177,11 @@ export class NativeTTS {
             this.onProgress(progress);
           }
 
+          // Report character position for StoryDirector
+          if (this.onCharPosition && event.charIndex !== undefined) {
+            this.onCharPosition(event.charIndex);
+          }
+
           // Update mascot intensity based on speaking (simple pulse effect)
           if (this.mascot && this.mascot.setIntensity) {
             // Gentle pulsing while speaking
@@ -220,6 +233,12 @@ export class NativeTTS {
 
           const elapsed = Date.now() - speechStartTime;
           const estimatedCharPos = elapsed * charsPerMs;
+
+          // Report estimated character position for StoryDirector
+          if (this.onCharPosition) {
+            console.log(`[TTS] Reporting char position: ${Math.floor(estimatedCharPos)}`);
+            this.onCharPosition(Math.floor(estimatedCharPos));
+          }
 
           // Find which chunk we should be on based on character position
           let targetIdx = 0;
