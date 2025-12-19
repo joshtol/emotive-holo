@@ -29,9 +29,12 @@ export class HoloPhone {
 
     // Screen content state
     this._screenText = 'Hold to speak';
-    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel
+    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel, meditation
     this._animationFrame = 0;
     this._progress = 0;  // TTS progress 0-1
+
+    // Meditation state
+    this._meditationData = null;  // { phase, timer, cycle, maxCycles }
 
     // Carousel state
     this._carouselData = null;  // { geometries, currentIndex, currentVariantIndex, variants, phase }
@@ -130,6 +133,9 @@ export class HoloPhone {
       case 'speaking':
         this._drawSpeakingState(ctx, w, h);
         break;
+      case 'meditation':
+        this._drawMeditationState(ctx, w, h);
+        break;
       case 'carousel':
         this._drawCarouselState(ctx, w, h);
         break;
@@ -190,9 +196,15 @@ export class HoloPhone {
   }
 
   /**
-   * Draw processing state - spinning indicator
+   * Draw processing state - spinning indicator with cancel button
    */
   _drawProcessingState(ctx, w, h) {
+    // Clear hit regions for processing state (reuse speaking hit regions)
+    this._speakingHitRegions = [];
+
+    // Draw cancel button in top-left corner (same as speaking state)
+    this._drawCancelButton(ctx);
+
     ctx.fillStyle = '#40e0d0';
     ctx.font = '24px "Segoe UI", Arial, sans-serif';
     ctx.textAlign = 'center';
@@ -218,18 +230,68 @@ export class HoloPhone {
   }
 
   /**
-   * Draw speaking state - text with animated indicator
+   * Draw cancel button in top-left corner (bracket style)
+   * Reused by speaking and processing states
+   */
+  _drawCancelButton(ctx) {
+    const cancelSize = 50;
+    const cancelX = 12;
+    const cancelY = 12;
+    const cornerRadius = 12;
+
+    // Cancel bracket background
+    ctx.strokeStyle = 'rgba(255, 100, 100, 0.6)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cancelX + cancelSize, cancelY + 4);
+    ctx.lineTo(cancelX + cornerRadius, cancelY + 4);
+    ctx.quadraticCurveTo(cancelX + 4, cancelY + 4, cancelX + 4, cancelY + cornerRadius);
+    ctx.lineTo(cancelX + 4, cancelY + cancelSize - cornerRadius);
+    ctx.quadraticCurveTo(cancelX + 4, cancelY + cancelSize - 4, cancelX + cornerRadius, cancelY + cancelSize - 4);
+    ctx.lineTo(cancelX + cancelSize, cancelY + cancelSize - 4);
+    ctx.stroke();
+
+    // Cancel X icon
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✕', cancelX + cancelSize / 2 + 2, cancelY + cancelSize / 2);
+
+    // Hit region for cancel
+    this._speakingHitRegions.push({
+      name: 'cancel',
+      x: cancelX,
+      y: cancelY,
+      w: cancelSize,
+      h: cancelSize
+    });
+  }
+
+  /**
+   * Draw speaking state - text with animated indicator and cancel button
    */
   _drawSpeakingState(ctx, w, h) {
-    ctx.fillStyle = '#40e0d0';
-    ctx.font = '24px "Segoe UI", Arial, sans-serif';
+    // Clear hit regions for speaking state
+    this._speakingHitRegions = [];
+
+    // Draw cancel button
+    this._drawCancelButton(ctx);
+
+    // Draw text - soft white with subtle cyan glow for visibility
+    ctx.fillStyle = 'rgba(230, 245, 245, 0.95)';
+    ctx.font = '500 28px "Segoe UI", Arial, sans-serif';
     ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(64, 224, 208, 0.6)';
+    ctx.shadowBlur = 8;
 
     // Wrap text if needed
     const words = this._screenText.split(' ');
     let lines = [];
     let currentLine = '';
-    const maxWidth = w - 60;
+    const maxWidth = w - 80;  // More padding for cancel button
 
     for (const word of words) {
       const testLine = currentLine + (currentLine ? ' ' : '') + word;
@@ -244,11 +306,14 @@ export class HoloPhone {
     if (currentLine) lines.push(currentLine);
 
     // Draw lines centered
-    const lineHeight = 30;
+    const lineHeight = 32;
     const startY = h / 2 - (lines.length * lineHeight) / 2;
     lines.forEach((line, i) => {
       ctx.fillText(line, w / 2, startY + i * lineHeight);
     });
+
+    // Reset shadow for other elements
+    ctx.shadowBlur = 0;
 
     // Progress bar at bottom
     const barY = h - 35;
@@ -272,6 +337,176 @@ export class HoloPhone {
       ctx.fill();
       ctx.shadowBlur = 0;
     }
+  }
+
+  /**
+   * Get hit region for speaking state (cancel button)
+   */
+  getSpeakingHitRegion(canvasX, canvasY) {
+    if (!this._speakingHitRegions) return null;
+    for (const region of this._speakingHitRegions) {
+      if (canvasX >= region.x && canvasX <= region.x + region.w &&
+          canvasY >= region.y && canvasY <= region.y + region.h) {
+        return region;
+      }
+    }
+    return null;
+  }
+
+  // ==================== MEDITATION STATE ====================
+
+  /**
+   * Set meditation data for display
+   * @param {Object|null} data - { phase, timer, cycle, maxCycles } or null
+   */
+  setMeditationData(data) {
+    this._meditationData = data;
+    if (this._screenState === 'meditation') {
+      this._renderScreen();
+    }
+  }
+
+  /**
+   * Draw meditation state - clean, focused UI for guided breathing
+   * Layout: Phase instruction at top, large timer in center, minimal progress dots
+   */
+  _drawMeditationState(ctx, w, h) {
+    // Draw cancel button (smaller, more subtle)
+    this._speakingHitRegions = [];
+    this._drawMeditationCancelButton(ctx);
+
+    const data = this._meditationData;
+    const phase = data?.phase || this._screenText || 'Breathe';
+    const timer = data?.timer ?? '';
+    const cycle = data?.cycle ?? 0;
+    const maxCycles = data?.maxCycles ?? 5;
+
+    // High contrast colors
+    const textColor = 'rgba(255, 255, 255, 0.98)';
+
+    // Split layout: Phase instruction on left, Timer on right
+    if (timer !== '') {
+      // Left side: Phase instruction - large, left-justified
+      ctx.fillStyle = textColor;
+      ctx.font = '300 42px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(phase, 70, h / 2);  // Left margin for cancel button
+
+      // Right side: Large timer number
+      ctx.fillStyle = textColor;
+      ctx.font = '200 100px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(180, 160, 220, 0.4)';
+      ctx.shadowBlur = 20;
+      ctx.fillText(String(timer), w * 0.78, h / 2);
+      ctx.shadowBlur = 0;
+    } else {
+      // No timer - show message centered (intro/outro/affirmations)
+      ctx.fillStyle = textColor;
+      ctx.font = '400 28px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(180, 160, 220, 0.3)';
+      ctx.shadowBlur = 12;
+
+      // Wrap text if needed
+      const words = this._screenText.split(' ');
+      let lines = [];
+      let currentLine = '';
+      const maxWidth = w - 120;
+
+      for (const word of words) {
+        const testLine = currentLine + (currentLine ? ' ' : '') + word;
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && currentLine) {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+
+      const lineHeight = 36;
+      const textStartY = h / 2 - (lines.length * lineHeight) / 2;
+      lines.forEach((line, i) => {
+        ctx.fillText(line, w / 2, textStartY + i * lineHeight);
+      });
+
+      ctx.shadowBlur = 0;
+    }
+
+    // Progress dots at bottom (minimal, elegant)
+    const dotRadius = 5;
+    const dotSpacing = 20;
+    const dotsY = h - 28;
+    const totalDotsWidth = (maxCycles - 1) * dotSpacing;
+    const dotsStartX = (w - totalDotsWidth) / 2;
+
+    for (let i = 0; i < maxCycles; i++) {
+      const dotX = dotsStartX + i * dotSpacing;
+      const isComplete = i < cycle;
+      const isCurrent = i === cycle;
+
+      ctx.beginPath();
+      ctx.arc(dotX, dotsY, isCurrent ? dotRadius + 1 : dotRadius, 0, Math.PI * 2);
+
+      if (isComplete) {
+        // Completed cycles - bright lavender with glow
+        ctx.fillStyle = 'rgba(200, 180, 255, 1)';
+        ctx.shadowColor = 'rgba(200, 180, 255, 0.8)';
+        ctx.shadowBlur = 8;
+      } else if (isCurrent) {
+        // Current cycle - semi-bright
+        ctx.fillStyle = 'rgba(180, 160, 220, 0.7)';
+        ctx.shadowBlur = 0;
+      } else {
+        // Future cycles - visible but dim
+        ctx.fillStyle = 'rgba(140, 130, 160, 0.5)';
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  /**
+   * Draw minimal cancel button for meditation (top-left, subtle)
+   */
+  _drawMeditationCancelButton(ctx) {
+    const size = 36;
+    const x = 16;
+    const y = 16;
+
+    // Subtle circular background
+    ctx.fillStyle = 'rgba(255, 100, 100, 0.15)';
+    ctx.beginPath();
+    ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // X icon
+    ctx.strokeStyle = 'rgba(255, 100, 100, 0.7)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    const inset = 12;
+    ctx.beginPath();
+    ctx.moveTo(x + inset, y + inset);
+    ctx.lineTo(x + size - inset, y + size - inset);
+    ctx.moveTo(x + size - inset, y + inset);
+    ctx.lineTo(x + inset, y + size - inset);
+    ctx.stroke();
+
+    // Hit region
+    this._speakingHitRegions.push({
+      name: 'cancel',
+      x: x,
+      y: y,
+      w: size,
+      h: size
+    });
   }
 
   // ==================== CAROUSEL STATE ====================

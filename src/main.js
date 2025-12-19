@@ -12,6 +12,7 @@ import { GeometryCarousel } from './carousel.js';
 import { EmitterBase } from './emitter-base.js';
 import { HoloPhone } from './holo-phone.js';
 import { layoutScaler } from './layout-scaler.js';
+import { StoryDirector } from './story-director.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
@@ -39,6 +40,7 @@ class EmoAssistant {
     this.tts = null;
     this.meditation = null;
     this.carousel = null;
+    this.storyDirector = null;
 
     // DOM elements
     this.elements = {
@@ -46,13 +48,9 @@ class EmoAssistant {
       caption: document.getElementById('caption'),
       status: document.getElementById('status'),
       voiceIndicator: document.getElementById('voice-indicator'),
-      meditationOverlay: document.getElementById('meditation-overlay'),
-      meditationPhase: document.getElementById('meditation-phase'),
-      meditationTimer: document.getElementById('meditation-timer'),
       // Holographic phone display
       holoPhone: document.getElementById('holo-phone'),
       screenText: document.querySelector('#holo-phone .screen-text'),
-      cancelButton: document.getElementById('cancel-btn'),
       // Response progress bar
       responseProgress: document.getElementById('response-progress'),
       responseProgressFill: document.querySelector('#response-progress .progress-fill'),
@@ -213,9 +211,12 @@ class EmoAssistant {
     this.voiceInput = new VoiceInput();
     this.claude = new ClaudeClient();
     this.tts = new NativeTTS(this.mascot);
-    this.meditation = new MeditationController(this.mascot, this.tts, this.elements);
+    // Pass holoPhone3D to meditation so it can update the display
+    this.meditation = new MeditationController(this.mascot, this.tts, this.elements, this.holoPhone3D);
     // Pass holoPhone3D to carousel so it can render on the phone screen
     this.carousel = new GeometryCarousel(this.mascot, this.elements.container, this.holoPhone3D);
+    // StoryDirector for inline story directives
+    this.storyDirector = new StoryDirector(this.mascot);
 
     // Wire up carousel state change to sync main state
     this.carousel.onStateChange = (carouselState) => {
@@ -242,6 +243,13 @@ class EmoAssistant {
     this.tts.onProgress = (progress) => {
       if (this.holoPhone3D) {
         this.holoPhone3D.setProgress(progress);
+      }
+    };
+
+    // Wire up TTS character position to StoryDirector for inline directives
+    this.tts.onCharPosition = (charIndex) => {
+      if (this.storyDirector) {
+        this.storyDirector.updateProgress(charIndex);
       }
     };
 
@@ -300,6 +308,21 @@ class EmoAssistant {
         return;
       }
 
+      // Cancel meditation on click
+      if (this.state === 'meditation') {
+        console.log('Cancelling meditation via click');
+        this.tts.stop();
+        this.meditation.stop();
+        this.setState('idle');
+        return;
+      }
+
+      // Check for speaking/processing state cancel button
+      if (this.state === 'speaking' || this.state === 'processing') {
+        this._handleSpeakingTouch(e.clientX, e.clientY);
+        return;
+      }
+
       this.startListening();
     });
 
@@ -342,6 +365,22 @@ class EmoAssistant {
       if (this.state === 'carousel') {
         const touch = e.touches[0];
         this._handleCarouselTouch(touch.clientX, touch.clientY, 'start');
+        return;
+      }
+
+      // Cancel meditation on touch
+      if (this.state === 'meditation') {
+        console.log('Cancelling meditation via touch');
+        this.tts.stop();
+        this.meditation.stop();
+        this.setState('idle');
+        return;
+      }
+
+      // Check for speaking/processing state cancel button
+      if (this.state === 'speaking' || this.state === 'processing') {
+        const touch = e.touches[0];
+        this._handleSpeakingTouch(touch.clientX, touch.clientY);
         return;
       }
 
@@ -433,18 +472,8 @@ class EmoAssistant {
 
     // Meditation end callback
     this.meditation.onEnd = () => {
-      this.state = 'idle';
+      this.setState('idle');
     };
-
-    // Click on meditation overlay to cancel (tap anywhere to exit)
-    if (this.elements.meditationOverlay) {
-      this.elements.meditationOverlay.addEventListener('click', () => {
-        if (this.state === 'meditation') {
-          this.meditation.stop();
-          this.setState('idle');
-        }
-      });
-    }
 
     // Voice input result
     this.voiceInput.onResult = (transcript) => {
@@ -467,14 +496,6 @@ class EmoAssistant {
       this.scheduleScreenRevert();
     };
 
-    // Cancel button - abort current AI response (now separate from phone)
-    if (this.elements.cancelButton) {
-      this.elements.cancelButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        console.log('Cancel button clicked');
-        this.cancelCurrentOperation();
-      });
-    }
   }
 
   startListening() {
@@ -497,9 +518,10 @@ class EmoAssistant {
     if (this.elements.holoPhone) {
       this.elements.holoPhone.classList.add('listening');
     }
-    this.elements.voiceIndicator.classList.remove('hidden');
+    // Add blur to background
+    document.getElementById('hologram-container')?.classList.add('listening-active');
 
-    // Update screen state
+    // Update screen state (3D phone shows listening animation)
     this.setScreen('Listening...', 'listening');
 
     // Only set attentive emotion if user hasn't requested a persistent emotion
@@ -531,7 +553,8 @@ class EmoAssistant {
     if (this.elements.holoPhone) {
       this.elements.holoPhone.classList.remove('listening');
     }
-    this.elements.voiceIndicator.classList.add('hidden');
+    // Remove blur from background
+    document.getElementById('hologram-container')?.classList.remove('listening-active');
 
     console.log('Stopping voice input...');
     this.voiceInput.stop();
@@ -588,36 +611,72 @@ class EmoAssistant {
 
       // Check for meditation mode
       if (startMeditation || this.isMeditationRequest(transcript)) {
-        this.setState('meditation');
-        this.setScreen(text, 'speaking');
-        await this.tts.speak(text);
+        // Detect box breathing request
+        const isBoxBreathing = this.isBoxBreathingRequest(transcript);
+        this.meditation.setPattern(isBoxBreathing ? 'box' : 'default');
+
+        // Parse inline directives from meditation intro text
+        this.storyDirector.reset();
+        const cleanMeditationText = this.storyDirector.parse(text);
+
+        // Apply any initial directives (morph, preset, feel from response)
+        if (morph && this.mascot.morphTo) {
+          this.mascot.morphTo(morph);
+        }
+        if (preset && this.mascot.setSSSPreset) {
+          this.mascot.setSSSPreset(preset);
+        }
         if (feel) this.mascot.feel(feel);
+
+        // Set up TTS progress tracking for inline directives
+        this.tts.onCharPosition = (charIndex) => {
+          this.storyDirector.updateProgress(charIndex);
+        };
+
+        // Use 'speaking' state so onChunkChange callback updates the display
+        // (meditation state is set after intro TTS completes)
+        this.setState('speaking');
+        this.setScreen('', 'speaking');  // TTS onChunkChange will populate chunks
+        await this.tts.speak(cleanMeditationText);
+
+        // Trigger any remaining directives
+        this.storyDirector.triggerRemaining();
+        this.tts.onCharPosition = null;
+
+        // Now enter meditation mode for the breathing exercises
+        this.setState('meditation');
         this.meditation.start();
         return;
       }
 
       // Normal response flow
       this.setState('speaking');
-      console.log('Setting screen text:', text);
+
+      // Parse inline story directives (strips them from text, schedules for playback)
+      this.storyDirector.reset();
+      const cleanText = this.storyDirector.parse(text);
+      const hasInlineDirectives = this.storyDirector.hasDirectives();
+
+      console.log('Setting screen text:', cleanText);
       // TTS will handle chunk display via onChunkChange callback
       // Just set speaking state, first chunk shown by TTS.speak()
       this.setScreen('', 'speaking');
 
-      // Apply morph directive if present
+      // Apply morph directive if present (end-of-response directive)
       if (morph && this.mascot.morphTo) {
         console.log('Morphing to:', morph);
         this.mascot.morphTo(morph);
         this.currentGeometry = morph;  // Track for auto-revert
       }
 
-      // Apply feel directive
-      if (feel) {
+      // Apply feel directive (end-of-response directive)
+      // Skip if we have inline directives - let StoryDirector handle emotions
+      if (feel && !hasInlineDirectives) {
         this.mascot.feel(feel);
         // Mark as user-requested so it won't auto-revert
         this._userRequestedEmotion = true;
-      } else {
-        // No feel directive in this response - clear the persistent emotion flag
-        // so future interactions can auto-revert normally
+      } else if (!hasInlineDirectives) {
+        // No feel directive and no inline directives - clear the persistent emotion flag
         this._userRequestedEmotion = false;
       }
 
@@ -638,20 +697,26 @@ class EmoAssistant {
         this.mascot.setSSSPreset(preset);
       }
 
-      // Apply gesture chain if present
-      if (chain && this.mascot.chain) {
+      // Apply gesture chain if present (skip if inline directives will handle it)
+      if (chain && this.mascot.chain && !hasInlineDirectives) {
         console.log('Playing chain:', chain);
         this.mascot.chain(chain);
       }
 
-      // Apply camera preset if present
-      if (camera && this.mascot.setCameraPreset) {
+      // Apply camera preset if present (skip during storytelling - camera changes are disorienting)
+      if (camera && this.mascot.setCameraPreset && !hasInlineDirectives) {
         console.log('Setting camera:', camera);
         this.mascot.setCameraPreset(camera);
       }
 
       // Speak the response (progress bar is on 3D phone, updated via onProgress callback)
-      await this.tts.speak(text);
+      // Use clean text with directives stripped
+      await this.tts.speak(cleanText);
+
+      // Trigger any remaining directives that weren't reached
+      if (hasInlineDirectives) {
+        this.storyDirector.triggerRemaining();
+      }
 
       // Keep showing the last chunk of text (don't dump full text)
       // The phone will continue displaying whatever was last set via onChunkChange
@@ -675,6 +740,14 @@ class EmoAssistant {
   }
 
   parseResponse(response) {
+    // Valid values for validation - MUST match what the engine supports
+    const VALID_GEOMETRIES = ['crystal', 'moon', 'sun', 'heart', 'star', 'rough'];
+    const VALID_EMOTIONS = ['neutral', 'joy', 'calm', 'love', 'excited', 'euphoria', 'sadness', 'anger', 'fear', 'surprise', 'disgust', 'focused', 'suspicion', 'resting', 'glitch'];
+    const VALID_PRESETS = ['quartz', 'emerald', 'ruby', 'sapphire', 'amethyst', 'citrine'];
+    const VALID_UNDERTONES = ['nervous', 'confident', 'sarcastic', 'hesitant', 'calm', 'clear'];
+    const VALID_CHAINS = ['rise', 'flow', 'burst', 'drift', 'chaos', 'morph', 'rhythm', 'spiral', 'routine', 'radiance', 'twinkle', 'stream'];
+    const VALID_CAMERAS = ['front', 'side', 'top', 'bottom', 'angle', 'back'];
+
     const lines = response.split('\n');
     let text = [];
     let feel = null;
@@ -692,7 +765,12 @@ class EmoAssistant {
       if (trimmed.startsWith('FEEL:')) {
         feel = trimmed.substring(5).trim();
       } else if (trimmed.startsWith('MORPH:')) {
-        morph = trimmed.substring(6).trim().toLowerCase();
+        const requestedMorph = trimmed.substring(6).trim().toLowerCase();
+        if (VALID_GEOMETRIES.includes(requestedMorph)) {
+          morph = requestedMorph;
+        } else {
+          console.warn(`[parseResponse] Invalid geometry "${requestedMorph}" - valid: ${VALID_GEOMETRIES.join(', ')}`);
+        }
       } else if (trimmed.startsWith('MEDITATION:')) {
         if (trimmed.includes('start')) {
           startMeditation = true;
@@ -707,13 +785,33 @@ class EmoAssistant {
           toggles.push({ feature, enabled });
         }
       } else if (trimmed.startsWith('PRESET:')) {
-        preset = trimmed.substring(7).trim().toLowerCase();
+        const requestedPreset = trimmed.substring(7).trim().toLowerCase();
+        if (VALID_PRESETS.includes(requestedPreset)) {
+          preset = requestedPreset;
+        } else {
+          console.warn(`[parseResponse] Invalid preset "${requestedPreset}" - valid: ${VALID_PRESETS.join(', ')}`);
+        }
       } else if (trimmed.startsWith('UNDERTONE:')) {
-        undertone = trimmed.substring(10).trim().toLowerCase();
+        const requestedUndertone = trimmed.substring(10).trim().toLowerCase();
+        if (VALID_UNDERTONES.includes(requestedUndertone)) {
+          undertone = requestedUndertone;
+        } else {
+          console.warn(`[parseResponse] Invalid undertone "${requestedUndertone}" - valid: ${VALID_UNDERTONES.join(', ')}`);
+        }
       } else if (trimmed.startsWith('CHAIN:')) {
-        chain = trimmed.substring(6).trim().toLowerCase();
+        const requestedChain = trimmed.substring(6).trim().toLowerCase();
+        if (VALID_CHAINS.includes(requestedChain)) {
+          chain = requestedChain;
+        } else {
+          console.warn(`[parseResponse] Invalid chain "${requestedChain}" - valid: ${VALID_CHAINS.join(', ')}`);
+        }
       } else if (trimmed.startsWith('CAMERA:')) {
-        camera = trimmed.substring(7).trim().toLowerCase();
+        const requestedCamera = trimmed.substring(7).trim().toLowerCase();
+        if (VALID_CAMERAS.includes(requestedCamera)) {
+          camera = requestedCamera;
+        } else {
+          console.warn(`[parseResponse] Invalid camera "${requestedCamera}" - valid: ${VALID_CAMERAS.join(', ')}`);
+        }
       } else if (trimmed) {
         // Filter out action descriptions like *morphs into...*
         if (!trimmed.startsWith('*') || !trimmed.endsWith('*')) {
@@ -722,16 +820,12 @@ class EmoAssistant {
       }
     }
 
-    // Fallback: detect morph from FEEL line if it contains "morph to X"
-    if (!morph && feel) {
-      const feelLower = feel.toLowerCase();
-      const morphMatch = feelLower.match(/morph\s+to\s+(\w+)/);
-      if (morphMatch) {
-        const target = morphMatch[1];
-        const validGeometries = ['moon', 'sun', 'crystal', 'heart', 'star', 'rough', 'sphere', 'diamond', 'torus', 'icosahedron', 'octahedron', 'tetrahedron', 'dodecahedron', 'ring'];
-        if (validGeometries.includes(target)) {
-          morph = target;
-        }
+    // Validate emotion in feel directive (first word before comma is the emotion)
+    if (feel) {
+      const emotionPart = feel.split(',')[0].trim().toLowerCase();
+      if (!VALID_EMOTIONS.includes(emotionPart)) {
+        console.warn(`[parseResponse] Invalid emotion "${emotionPart}" in FEEL - valid: ${VALID_EMOTIONS.join(', ')}`);
+        // Don't nullify feel entirely - gesture part might still be valid
       }
     }
 
@@ -767,6 +861,17 @@ class EmoAssistant {
       // General wellness requests
       'center myself', 'find peace', 'need peace',
       'help me feel better', 'ground me', 'grounding'
+    ];
+    return keywords.some(kw => lower.includes(kw));
+  }
+
+  isBoxBreathingRequest(transcript) {
+    const lower = transcript.toLowerCase();
+    const keywords = [
+      'box breathing', 'box breath',
+      '4-4-4-4', '4 4 4 4',
+      'square breathing', 'tactical breathing',
+      'navy seal breathing'
     ];
     return keywords.some(kw => lower.includes(kw));
   }
@@ -814,11 +919,6 @@ class EmoAssistant {
       this.setStatus('');
     }
 
-    // Show/hide cancel button based on active AI states
-    const showCancel = ['thinking', 'speaking', 'processing'].includes(newState);
-    if (this.elements.cancelButton) {
-      this.elements.cancelButton.classList.toggle('hidden', !showCancel);
-    }
   }
 
   setStatus(text) {
@@ -1082,6 +1182,24 @@ class EmoAssistant {
 
     console.log('No valid coordinate conversion available');
     return null;
+  }
+
+  /**
+   * Handle speaking state touch/click (for cancel button)
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   */
+  _handleSpeakingTouch(clientX, clientY) {
+    if (!this.holoPhone3D) return;
+
+    const canvasCoords = this._screenToPhoneCanvas(clientX, clientY);
+    if (!canvasCoords) return;
+
+    const hitRegion = this.holoPhone3D.getSpeakingHitRegion(canvasCoords.x, canvasCoords.y);
+    if (hitRegion && hitRegion.name === 'cancel') {
+      console.log('Speaking cancel button tapped');
+      this.cancelCurrentOperation();
+    }
   }
 
   /**

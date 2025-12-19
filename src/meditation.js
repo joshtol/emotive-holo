@@ -4,10 +4,11 @@
  */
 
 export class MeditationController {
-  constructor(mascot, tts, elements) {
+  constructor(mascot, tts, elements, holoPhone3D = null) {
     this.mascot = mascot;
     this.tts = tts;
     this.elements = elements;
+    this.holoPhone3D = holoPhone3D;
 
     this.isActive = false;
     this.currentPhase = null;
@@ -17,20 +18,25 @@ export class MeditationController {
 
     this.onEnd = null;
 
-    // Progress elements
-    this.progressFill = null;
-    this.progressLabel = null;
+    // Container reference for blur effect
     this.hologramContainer = null;
 
-    // Breathing pattern (in seconds)
-    this.pattern = {
-      inhale: 4,
-      holdIn: 4,
-      exhale: 6,
-      holdOut: 2
+    // Breathing patterns (in seconds)
+    this.patterns = {
+      default: { inhale: 4, holdIn: 4, exhale: 6, holdOut: 2 },
+      box: { inhale: 4, holdIn: 4, exhale: 4, holdOut: 4 }  // 4-4-4-4 box breathing
     };
+    this.pattern = { ...this.patterns.default };
+    this.patternName = 'default';
 
-    // Phase configurations
+    // Phase configurations (durations set dynamically)
+    this._initPhases();
+  }
+
+  /**
+   * Initialize phase configurations from current pattern
+   */
+  _initPhases() {
     this.phases = {
       inhale: {
         name: 'Breathe In',
@@ -54,31 +60,50 @@ export class MeditationController {
         name: 'Rest',
         duration: this.pattern.holdOut,
         feel: 'resting, gentle sway',
-        cue: null // Silent rest
+        cue: this.patternName === 'box' ? 'Hold' : null // Say "Hold" for box breathing
       }
     };
+  }
+
+  /**
+   * Set breathing pattern
+   * @param {string} name - 'default' or 'box'
+   */
+  setPattern(name) {
+    if (this.patterns[name]) {
+      this.pattern = { ...this.patterns[name] };
+      this.patternName = name;
+      this._initPhases();
+      console.log(`Meditation pattern set to: ${name}`, this.pattern);
+    }
   }
 
   async start() {
     this.isActive = true;
     this.cycleCount = 0;
 
-    // Get progress elements
-    this.progressFill = document.querySelector('#meditation-progress .progress-fill');
-    this.progressLabel = document.querySelector('#meditation-progress .progress-label');
+    // Get hologram container for blur effect
     this.hologramContainer = document.getElementById('hologram-container');
 
-    // Show meditation overlay and add blur class to container
-    this.elements.meditationOverlay.classList.remove('hidden');
+    // Add blur class to container (blurs background, not mascot)
     if (this.hologramContainer) {
       this.hologramContainer.classList.add('meditation-active');
     }
 
-    // Initial progress
-    this.updateProgress();
+    // Set up holoPhone for meditation - all UI goes on the phone now
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setState('meditation');
+      this.holoPhone3D.setText('Breathe with me...');
+      this.holoPhone3D.setMeditationData({
+        phase: 'Breathe with me...',
+        timer: '',
+        cycle: 0,
+        maxCycles: this.maxCycles
+      });
+    }
 
     // Initial guidance
-    this.mascot.feel('serene, settle, breathe');
+    this.mascot.feel('calm, settle, breathe');
 
     // Wait a moment for the intro TTS to finish
     await this.delay(2000);
@@ -91,9 +116,6 @@ export class MeditationController {
     while (this.isActive && this.cycleCount < this.maxCycles) {
       this.cycleCount++;
       console.log(`Meditation cycle ${this.cycleCount}/${this.maxCycles}`);
-
-      // Update progress at start of each cycle
-      this.updateProgress();
 
       // Run through all phases
       await this.runPhase('inhale');
@@ -120,27 +142,19 @@ export class MeditationController {
     }
   }
 
-  /**
-   * Update the progress bar and label
-   */
-  updateProgress() {
-    const progress = this.cycleCount / this.maxCycles;
-
-    if (this.progressFill) {
-      this.progressFill.style.width = `${progress * 100}%`;
-    }
-
-    if (this.progressLabel) {
-      this.progressLabel.textContent = `Cycle ${this.cycleCount} of ${this.maxCycles}`;
-    }
-  }
-
   async runPhase(phaseName) {
     const phase = this.phases[phaseName];
     this.currentPhase = phaseName;
 
-    // Update UI
-    this.elements.meditationPhase.textContent = phase.name;
+    // Update holoPhone with phase name, timer, and cycle progress
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setMeditationData({
+        phase: phase.name,
+        timer: phase.duration,
+        cycle: this.cycleCount,
+        maxCycles: this.maxCycles
+      });
+    }
 
     // Apply mascot feel
     this.mascot.feel(phase.feel);
@@ -151,24 +165,48 @@ export class MeditationController {
     }
 
     // Countdown timer
-    await this.countdown(phase.duration);
+    await this.countdown(phase.duration, phase.name);
   }
 
-  countdown(seconds) {
+  countdown(seconds, phaseName) {
     return new Promise((resolve) => {
       let remaining = seconds;
 
-      this.elements.meditationTimer.textContent = remaining;
+      // Update holophone with initial timer value
+      if (this.holoPhone3D) {
+        this.holoPhone3D.setMeditationData({
+          phase: phaseName,
+          timer: remaining,
+          cycle: this.cycleCount,
+          maxCycles: this.maxCycles
+        });
+      }
 
       this.timerInterval = setInterval(() => {
         remaining--;
 
         if (remaining <= 0) {
           clearInterval(this.timerInterval);
-          this.elements.meditationTimer.textContent = '';
+          // Clear timer display
+          if (this.holoPhone3D) {
+            this.holoPhone3D.setMeditationData({
+              phase: phaseName,
+              timer: '',
+              cycle: this.cycleCount,
+              maxCycles: this.maxCycles
+            });
+          }
           resolve();
         } else {
-          this.elements.meditationTimer.textContent = remaining;
+          // Update holophone with countdown
+          if (this.holoPhone3D) {
+            this.holoPhone3D.setMeditationData({
+              phase: phaseName,
+              timer: remaining,
+              cycle: this.cycleCount,
+              maxCycles: this.maxCycles
+            });
+          }
         }
       }, 1000);
     });
@@ -185,7 +223,18 @@ export class MeditationController {
 
     const affirmation = affirmations[Math.floor(Math.random() * affirmations.length)];
 
-    this.mascot.feel('compassionate, gentle glow');
+    // Update holoPhone with affirmation (no timer during affirmation)
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setText(affirmation);
+      this.holoPhone3D.setMeditationData({
+        phase: affirmation,
+        timer: '',
+        cycle: this.cycleCount,
+        maxCycles: this.maxCycles
+      });
+    }
+
+    this.mascot.feel('love, gentle glow');
     await this.tts.speak(affirmation);
     await this.delay(1000);
   }
@@ -198,27 +247,33 @@ export class MeditationController {
       clearInterval(this.timerInterval);
     }
 
-    // Final message
-    this.elements.meditationPhase.textContent = 'Complete';
-    this.elements.meditationTimer.textContent = '';
-
-    // Set progress to 100%
-    if (this.progressFill) {
-      this.progressFill.style.width = '100%';
+    // Update holoPhone with completion state
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setText('Well done.');
+      this.holoPhone3D.setMeditationData({
+        phase: 'Complete',
+        timer: '',
+        cycle: this.maxCycles,
+        maxCycles: this.maxCycles
+      });
     }
-    if (this.progressLabel) {
-      this.progressLabel.textContent = 'Complete';
-    }
 
-    this.mascot.feel('peaceful, shimmer, settle');
+    this.mascot.feel('calm, shimmer, settle');
     await this.tts.speak("Well done. Take a moment before continuing.");
 
     await this.delay(2000);
 
-    // Hide overlay and remove blur class
-    this.elements.meditationOverlay.classList.add('hidden');
+    // Remove blur class from container
     if (this.hologramContainer) {
       this.hologramContainer.classList.remove('meditation-active');
+    }
+
+    // Reset holoPhone to idle state
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setState('idle');
+      this.holoPhone3D.setText('Hold to speak');
+      this.holoPhone3D.setMeditationData(null);
+      this.holoPhone3D.setProgress(0);
     }
 
     // Reset mascot
@@ -237,11 +292,20 @@ export class MeditationController {
       clearInterval(this.timerInterval);
     }
 
-    this.elements.meditationOverlay.classList.add('hidden');
+    // Remove blur class from container
     if (this.hologramContainer) {
       this.hologramContainer.classList.remove('meditation-active');
     }
-    this.mascot.feel('understanding, settle');
+
+    // Reset holoPhone to idle state
+    if (this.holoPhone3D) {
+      this.holoPhone3D.setState('idle');
+      this.holoPhone3D.setText('Hold to speak');
+      this.holoPhone3D.setMeditationData(null);
+      this.holoPhone3D.setProgress(0);
+    }
+
+    this.mascot.feel('calm, settle');
 
     if (this.onEnd) {
       this.onEnd();
