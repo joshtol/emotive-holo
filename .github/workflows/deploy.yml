@@ -28,7 +28,7 @@ jobs:
       # Replace local file dependency with npm version for CI build
       - name: Update package.json for CI
         run: |
-          sed -i 's|"file:../emotive-engine"|"^3.2.0"|' package.json
+          sed -i 's|"file:../emotive-engine"|"^3.2.1"|' package.json
 
       - name: Install dependencies
         run: npm install
