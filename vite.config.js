@@ -1,5 +1,8 @@
 import { defineConfig } from 'vite';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Base path for GitHub Pages deployment (set VITE_BASE=/emotive-holo/ for GH Pages)
@@ -17,7 +20,7 @@ export default defineConfig({
     alias: {
       // Allow serving assets from npm package
       '@emotive-assets': path.resolve(__dirname, 'node_modules/@joshtol/emotive-engine/assets'),
-      // Explicit alias for subpath export (helps Rollup resolve it)
+      // Explicit alias for subpath export (helps Rollup resolve it on Vercel)
       '@joshtol/emotive-engine/3d': path.resolve(__dirname, 'node_modules/@joshtol/emotive-engine/dist/emotive-mascot-3d.js')
     },
     // Dedupe Three.js to prevent multiple instances warning
