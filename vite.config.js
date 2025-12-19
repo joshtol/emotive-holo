@@ -16,7 +16,9 @@ export default defineConfig({
   resolve: {
     alias: {
       // Allow serving assets from npm package
-      '@emotive-assets': path.resolve(__dirname, 'node_modules/@joshtol/emotive-engine/assets')
+      '@emotive-assets': path.resolve(__dirname, 'node_modules/@joshtol/emotive-engine/assets'),
+      // Explicit alias for subpath export (helps Rollup resolve it)
+      '@joshtol/emotive-engine/3d': path.resolve(__dirname, 'node_modules/@joshtol/emotive-engine/dist/emotive-mascot-3d.js')
     },
     // Dedupe Three.js to prevent multiple instances warning
     dedupe: ['three']
