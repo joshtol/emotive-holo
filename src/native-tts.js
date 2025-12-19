@@ -236,7 +236,6 @@ export class NativeTTS {
 
           // Report estimated character position for StoryDirector
           if (this.onCharPosition) {
-            console.log(`[TTS] Reporting char position: ${Math.floor(estimatedCharPos)}`);
             this.onCharPosition(Math.floor(estimatedCharPos));
           }
 

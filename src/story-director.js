@@ -206,12 +206,6 @@ export class StoryDirector {
   updateProgress(charPosition) {
     if (!this.mascot || this._directives.length === 0) return;
 
-    // Debug: log progress updates
-    const nextDirective = this._directives[this._lastTriggeredIndex + 1];
-    if (nextDirective) {
-      console.log(`[StoryDirector] updateProgress(${charPosition}) - next directive at ${nextDirective.charIndex}`);
-    }
-
     // Find directives that should trigger at or before current position
     for (let i = this._lastTriggeredIndex + 1; i < this._directives.length; i++) {
       const directive = this._directives[i];
