@@ -691,7 +691,7 @@ class EmoAssistant {
 
         // Trigger any remaining directives
         this.storyDirector.triggerRemaining();
-        this.tts.onCharPosition = null;
+        // Note: Don't nullify onCharPosition - it's set once at init and reused for stories
 
         // Now enter meditation mode for the breathing exercises
         this.setState('meditation');
