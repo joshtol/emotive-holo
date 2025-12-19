@@ -2,9 +2,11 @@
  * Meditation Controller
  * Guided breathing exercises with mascot synchronization
  *
- * Uses the Emotive Engine's BreathingPatternManager for mascot visuals
- * and manages its own countdown timer for UI display.
+ * Uses mascot.feel() with breathing gestures for visual feedback
+ * and manages countdown timer for UI display on holophone.
  */
+
+import { BreathingAudio } from './audio/breathing-audio.js';
 
 export class MeditationController {
   constructor(mascot, tts, elements, holoPhone3D = null) {
@@ -21,28 +23,19 @@ export class MeditationController {
 
     this.onEnd = null;
 
+    // Procedural breathing audio
+    this.breathingAudio = new BreathingAudio();
+
     // Container reference for blur effect
     this.hologramContainer = null;
 
-    // Map our pattern names to engine breathing presets
-    // Engine presets: calm(4-4), anxious(2-2), meditative(4-7-8), deep(5-5-5-5 box), sleep(6-0-8-2)
-    this.enginePresets = {
-      default: 'meditative',  // 4-7-8 breathing
-      box: 'deep'             // 5-5-5-5 box breathing (engine's version)
-    };
-
-    // Our UI patterns (for countdown display) - can differ slightly from engine
+    // Breathing patterns for UI display
     this.patterns = {
-      default: { inhale: 4, holdIn: 7, exhale: 8, holdOut: 0 },  // Match engine's meditative
-      box: { inhale: 5, holdIn: 5, exhale: 5, holdOut: 5 }       // Match engine's deep/box
+      default: { inhale: 4, holdIn: 7, exhale: 8, holdOut: 0 },  // 4-7-8 meditative breathing
+      box: { inhale: 4, holdIn: 4, exhale: 4, holdOut: 4 }       // 4-4-4-4 box breathing
     };
     this.pattern = { ...this.patterns.default };
     this.patternName = 'default';
-
-    // Event listeners for engine breathing events
-    this._boundOnInhale = null;
-    this._boundOnHold = null;
-    this._boundOnExhale = null;
 
     // Phase configurations (durations set dynamically)
     this._initPhases();
@@ -93,6 +86,10 @@ export class MeditationController {
     this.isActive = true;
     this.cycleCount = 0;
 
+    // Initialize and start breathing audio
+    await this.breathingAudio.init();
+    this.breathingAudio.start();
+
     // Get hologram container for blur effect
     this.hologramContainer = document.getElementById('hologram-container');
 
@@ -111,13 +108,6 @@ export class MeditationController {
         cycle: 0,
         maxCycles: this.maxCycles
       });
-    }
-
-    // Start engine breathing animation (handles mascot scale/visuals automatically)
-    const enginePreset = this.enginePresets[this.patternName] || 'meditative';
-    console.log(`[Meditation] Starting engine breathing: ${enginePreset}`);
-    if (this.mascot.breathe) {
-      this.mascot.breathe(enginePreset);
     }
 
     // Initial calm feel
@@ -147,6 +137,9 @@ export class MeditationController {
 
       await this.runPhase('holdOut');
       if (!this.isActive) break;
+
+      // Advance to next chord progression for variety
+      this.breathingAudio.nextProgression();
 
       // Every 2 cycles, add an affirmation
       if (this.cycleCount % 2 === 0 && this.cycleCount < this.maxCycles) {
@@ -179,8 +172,15 @@ export class MeditationController {
       });
     }
 
-    // Note: Engine breathing handles mascot scale animation automatically
-    // We just manage the UI countdown here
+    // Start mascot breathing animation for this phase
+    // Maps our phase names to engine phase names: inhale, hold, exhale
+    const enginePhase = phaseName === 'holdIn' || phaseName === 'holdOut' ? 'hold' : phaseName;
+    if (this.mascot.breathePhase) {
+      this.mascot.breathePhase(enginePhase, phase.duration);
+    }
+
+    // Update breathing audio with phase
+    this.breathingAudio.setPhase(enginePhase, phase.duration);
 
     // Speak cue (if any) - don't await, let it overlap with countdown
     if (phase.cue) {
@@ -194,6 +194,10 @@ export class MeditationController {
   countdown(seconds, phaseName) {
     return new Promise((resolve) => {
       let remaining = seconds;
+      const total = seconds;
+
+      // Play initial count pluck
+      this.breathingAudio.playCount(remaining, total);
 
       // Update holophone with initial timer value
       if (this.holoPhone3D) {
@@ -221,6 +225,9 @@ export class MeditationController {
           }
           resolve();
         } else {
+          // Play count pluck for this tick
+          this.breathingAudio.playCount(remaining, total);
+
           // Update holophone with countdown
           if (this.holoPhone3D) {
             this.holoPhone3D.setMeditationData({
@@ -270,9 +277,12 @@ export class MeditationController {
       clearInterval(this.timerInterval);
     }
 
-    // Stop engine breathing animation
-    if (this.mascot.stopBreathing) {
-      this.mascot.stopBreathing();
+    // Stop breathing audio
+    this.breathingAudio.stop();
+
+    // Stop imperative breathing animation and reset scale
+    if (this.mascot.stopBreathingPhase) {
+      this.mascot.stopBreathingPhase();
     }
 
     // Update holoPhone with completion state
@@ -320,9 +330,12 @@ export class MeditationController {
       clearInterval(this.timerInterval);
     }
 
-    // Stop engine breathing animation
-    if (this.mascot.stopBreathing) {
-      this.mascot.stopBreathing();
+    // Stop breathing audio
+    this.breathingAudio.stop();
+
+    // Stop imperative breathing animation and reset scale
+    if (this.mascot.stopBreathingPhase) {
+      this.mascot.stopBreathingPhase();
     }
 
     // Remove blur class from container
