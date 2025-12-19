@@ -3,6 +3,9 @@
  * Main orchestration module
  */
 
+// Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
+const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
+
 import { EmotiveMascot3D } from '@joshtol/emotive-engine/3d';
 import { VoiceInput } from './voice-input.js';
 import { ClaudeClient } from './claude-client.js';
@@ -95,7 +98,7 @@ class EmoAssistant {
       targetFPS: 60,
       backgroundColor: 0x000000,
       materialVariant: 'multiplexer',  // Required for crystal presets, moon phases, eclipses
-      assetBasePath: '/assets'  // Path to OBJ models and textures
+      assetBasePath: `${BASE_PATH}/assets`  // Path to OBJ models and textures
     });
 
     await this.mascot.init(this.elements.container);
@@ -152,6 +155,7 @@ class EmoAssistant {
       renderer.toneMappingExposure = 1.1;  // Balanced exposure for realistic colors
       // Emitter uses realistic proportions from layout scaler
       this.emitterBase = new EmitterBase(scene, mainCamera, renderer, {
+        basePath: `${BASE_PATH}/assets/models/emitter`,
         scale: layout3D.emitterScale,
         position: { x: 0, y: layout3D.emitterY, z: 0 },
         rotation: { x: 0, y: 0, z: 0 }
@@ -164,6 +168,7 @@ class EmoAssistant {
       const phoneScaleRatio = layout3D.emitterScale / 0.32;
       const phoneZRatio = phoneScaleRatio; // Z position also scales with emitter
       this.holoPhone3D = new HoloPhone(this.emitterBase.scene, mainCamera, renderer, {
+        basePath: `${BASE_PATH}/assets/models/phone`,
         // Phone should be roughly 5-6 inches wide (landscape), close to emitter base width
         scale: 0.25 * phoneScaleRatio,
         // Phone sits on the gold shelf, leaning back against the emitter body
