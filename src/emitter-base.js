@@ -127,7 +127,9 @@ export class EmitterBase {
    */
   _loadBackgroundHDRI() {
     const textureLoader = new THREE.TextureLoader();
-    textureLoader.load('/assets/backgrounds/living-room.jpg', (texture) => {
+    // Derive assets root from basePath (e.g., '/emotive-holo/assets/models/emitter' -> '/emotive-holo/assets')
+    const assetsRoot = this.options.basePath.replace(/\/models\/emitter$/, '');
+    textureLoader.load(`${assetsRoot}/backgrounds/living-room.jpg`, (texture) => {
       // Set up as equirectangular environment
       texture.mapping = THREE.EquirectangularReflectionMapping;
       texture.colorSpace = THREE.SRGBColorSpace;
