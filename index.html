@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles/main.css">
+  <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
   <!-- SVG for emitter shadows with blur -->
@@ -87,9 +87,6 @@
         <div class="phone-indicator"></div>
       </div>
     </div>
-    <!-- Cancel button - separate from phone for reliable clicks -->
-    <button id="cancel-btn" class="hidden" aria-label="Cancel">✕</button>
-
     <!-- Carousel UI now renders on 3D phone screen -->
 
     <!-- Floating holographic title - projected above emitter during carousel -->
@@ -122,20 +119,7 @@
     <div class="voice-text">Listening...</div>
   </div>
 
-  <!-- Meditation overlay - blurs background only, not mascot -->
-  <div id="meditation-overlay" class="hidden">
-    <div class="meditation-blur-layer"></div>
-    <div class="meditation-content">
-      <div id="meditation-phase">Breathe In</div>
-      <div id="meditation-timer"></div>
-      <div id="meditation-progress">
-        <div class="progress-bar">
-          <div class="progress-fill"></div>
-        </div>
-        <div class="progress-label">Cycle 1 of 5</div>
-      </div>
-    </div>
-  </div>
+  <!-- Meditation UI is now rendered on the holophone screen -->
 
   <!-- Response progress bar (for stories, TTS, etc.) -->
   <div id="response-progress" class="hidden">
@@ -144,6 +128,6 @@
     </div>
   </div>
 
-  <script type="module" src="/src/main.js"></script>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>
