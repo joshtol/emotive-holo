@@ -1364,14 +1364,39 @@ export class HoloPhone {
    * Update shader uniforms with current UV values
    */
   _updateShaderUV() {
-    if (this.screenMaterial && this.screenMaterial.uniforms) {
-      this.screenMaterial.uniforms.screenUVMin.value.set(this._uvMin.x, this._uvMin.y);
-      this.screenMaterial.uniforms.screenUVMax.value.set(this._uvMax.x, this._uvMax.y);
+    // Update the Vector2 references that the shader uses
+    if (this._screenUVMin && this._screenUVMax) {
+      this._screenUVMin.set(this._uvMin.x, this._uvMin.y);
+      this._screenUVMax.set(this._uvMax.x, this._uvMax.y);
+    }
+    // Also update via shader reference if available (for onBeforeCompile materials)
+    if (this._screenShader && this._screenShader.uniforms) {
+      this._screenShader.uniforms.screenUVMin.value.set(this._uvMin.x, this._uvMin.y);
+      this._screenShader.uniforms.screenUVMax.value.set(this._uvMax.x, this._uvMax.y);
+    }
+  }
+
+  /**
+   * Set environment map for PBR reflections (called by main after emitter loads)
+   * @param {THREE.Texture} envMap - Environment map texture
+   */
+  setEnvironmentMap(envMap) {
+    this._envMap = envMap;
+    // Apply to existing materials if loaded
+    if (this.mesh) {
+      this.mesh.traverse((child) => {
+        if (child.isMesh && child.material && child.material.envMap !== undefined) {
+          child.material.envMap = envMap;
+          child.material.envMapIntensity = 0.8;
+          child.material.needsUpdate = true;
+        }
+      });
     }
   }
 
   /**
    * Load the phone model (GLB format with Draco compression)
+   * Uses MeshPhysicalMaterial for realistic PBR rendering
    */
   async load() {
     return new Promise((resolve, reject) => {
@@ -1405,69 +1430,112 @@ export class HoloPhone {
             }
           });
 
-          // Create shader material that composites screen canvas over phone texture
-          this.screenMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-              phoneTexture: { value: diffuseTexture },
-              screenTexture: { value: this.screenTexture },
-              // UV bounds of screen region in the phone texture
-              screenUVMin: { value: new THREE.Vector2(this._uvMin.x, this._uvMin.y) },
-              screenUVMax: { value: new THREE.Vector2(this._uvMax.x, this._uvMax.y) }
-            },
-            vertexShader: `
-              varying vec2 vUv;
-              varying vec3 vNormal;
-              varying vec3 vViewPosition;
+          // Store UV bounds for screen region
+          this._screenUVMin = new THREE.Vector2(this._uvMin.x, this._uvMin.y);
+          this._screenUVMax = new THREE.Vector2(this._uvMax.x, this._uvMax.y);
 
-              void main() {
-                vUv = uv;
-                vNormal = normalize(normalMatrix * normal);
-                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                vViewPosition = -mvPosition.xyz;
-                gl_Position = projectionMatrix * mvPosition;
-              }
-            `,
-            fragmentShader: `
-              uniform sampler2D phoneTexture;
-              uniform sampler2D screenTexture;
-              uniform vec2 screenUVMin;
-              uniform vec2 screenUVMax;
-
-              varying vec2 vUv;
-              varying vec3 vNormal;
-              varying vec3 vViewPosition;
-
-              void main() {
-                // Sample base phone texture
-                vec4 phoneColor = texture2D(phoneTexture, vUv);
-
-                // Check if we're in the screen UV region
-                bool inScreen = vUv.x >= screenUVMin.x && vUv.x <= screenUVMax.x &&
-                                vUv.y >= screenUVMin.y && vUv.y <= screenUVMax.y;
-
-                if (inScreen) {
-                  // Map phone UV to screen texture UV (0-1 range)
-                  vec2 screenUV = (vUv - screenUVMin) / (screenUVMax - screenUVMin);
-                  // Rotate 90 degrees CW for landscape display and flip to correct mirror
-                  float temp = screenUV.x;
-                  screenUV.x = 1.0 - screenUV.y;  // Flip X to fix mirror
-                  screenUV.y = 1.0 - temp;
-                  vec4 screenColor = texture2D(screenTexture, screenUV);
-
-                  // Use screen color in the screen region
-                  gl_FragColor = screenColor;
-                } else {
-                  // Simple lighting for phone body
-                  vec3 lightDir = normalize(vec3(1.0, 2.0, 3.0));
-                  float diff = max(dot(vNormal, lightDir), 0.0) * 0.5 + 0.5;
-                  gl_FragColor = vec4(phoneColor.rgb * diff, phoneColor.a);
-                }
-              }
-            `,
-            side: THREE.DoubleSide
+          // Create PBR material with screen overlay via onBeforeCompile
+          // This gives us full PBR lighting (metalness, roughness, env reflections)
+          // while still allowing custom screen content injection
+          this.screenMaterial = new THREE.MeshPhysicalMaterial({
+            map: diffuseTexture,
+            // Matte metallic finish - avoids specular highlights on curved rims
+            metalness: 0.6,
+            roughness: 0.45,  // Much higher roughness to eliminate rim highlights
+            envMap: this._envMap || null,
+            envMapIntensity: 0.3,  // Very low env reflections
+            // No clearcoat - it was causing the rim highlight
+            clearcoat: 0.0,
+            reflectivity: 0.5
           });
 
-          // Apply material to all meshes
+          // Inject custom shader code to blend screen content over the PBR result
+          this.screenMaterial.onBeforeCompile = (shader) => {
+            // Add custom uniforms
+            shader.uniforms.screenTexture = { value: this.screenTexture };
+            shader.uniforms.screenUVMin = { value: this._screenUVMin };
+            shader.uniforms.screenUVMax = { value: this._screenUVMax };
+            shader.uniforms.time = { value: 0.0 };
+
+            // Add uniform declarations to fragment shader
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <common>',
+              `#include <common>
+uniform sampler2D screenTexture;
+uniform vec2 screenUVMin;
+uniform vec2 screenUVMax;
+uniform float time;
+`
+            );
+
+            // Replace the final output to blend screen content
+            // Insert BEFORE dithering but AFTER all PBR calculations
+            // Use vMapUv which is the transformed UV from the map
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <dithering_fragment>',
+              `
+{
+  // Use vMapUv (transformed UV from diffuse map)
+  vec2 mapUV = vMapUv;
+
+  // Check if we're in the screen UV region
+  bool inScreen = mapUV.x >= screenUVMin.x && mapUV.x <= screenUVMax.x &&
+                  mapUV.y >= screenUVMin.y && mapUV.y <= screenUVMax.y;
+
+  if (inScreen) {
+    // Map phone UV to screen texture UV (0-1 range)
+    vec2 screenUV = (mapUV - screenUVMin) / (screenUVMax - screenUVMin);
+    // Rotate 90 degrees CW for landscape display and flip to correct mirror
+    float rotTemp = screenUV.x;
+    screenUV.x = 1.0 - screenUV.y;
+    screenUV.y = 1.0 - rotTemp;
+    vec4 screenColor = texture(screenTexture, screenUV);
+
+    // === OLED EMISSIVE SCREEN ===
+    // Calculate luminance for adaptive bloom
+    float luminance = dot(screenColor.rgb, vec3(0.299, 0.587, 0.114));
+    // Brighter pixels glow more (OLED characteristic)
+    float glowIntensity = 1.0 + luminance * 0.4;
+    vec3 screenEmission = screenColor.rgb * glowIntensity;
+
+    // === FRESNEL GLASS REFLECTIONS ===
+    // Stronger reflections at grazing angles (like real glass)
+    vec3 viewDir = normalize(vViewPosition);
+    vec3 normalDir = normalize(vNormal);
+    float fresnel = pow(1.0 - abs(dot(viewDir, normalDir)), 3.0);
+    // Glass reflection from environment/PBR - stronger at edges
+    float reflectionStrength = 0.03 + fresnel * 0.15;
+    vec3 glassReflection = gl_FragColor.rgb * reflectionStrength;
+
+    // === SCREEN EDGE VIGNETTE ===
+    // Subtle darkening at screen edges (bezel shadow, viewing angle)
+    vec2 edgeDist = abs(screenUV - 0.5) * 2.0;  // 0 at center, 1 at edges
+    float cornerDist = length(edgeDist);
+    float vignette = 1.0 - smoothstep(0.7, 1.4, cornerDist) * 0.25;
+
+    // === SUBTLE SCAN LINES (optional OLED texture) ===
+    // Very subtle horizontal lines for screen texture
+    float scanline = 1.0 - sin(screenUV.y * 400.0) * 0.015;
+
+    // === COMBINE ALL EFFECTS ===
+    vec3 finalScreen = screenEmission * vignette * scanline + glassReflection;
+
+    // Add very subtle color shift at extreme angles (IPS-like glow)
+    float angleShift = fresnel * 0.05;
+    finalScreen += vec3(angleShift * 0.5, angleShift * 0.3, angleShift);
+
+    gl_FragColor = vec4(finalScreen, 1.0);
+  }
+}
+#include <dithering_fragment>
+`
+            );
+
+            // Store shader reference for uniform updates
+            this._screenShader = shader;
+          };
+
+          // Apply PBR material to all meshes
           this.mesh.traverse((child) => {
             if (child.isMesh) {
               child.material = this.screenMaterial;
@@ -1492,7 +1560,7 @@ export class HoloPhone {
           // Add to scene
           this.scene.add(this.mesh);
 
-          console.log('HoloPhone loaded with screen shader (GLB)');
+          console.log('HoloPhone loaded with PBR materials');
           resolve(this.mesh);
         },
         // Progress
@@ -1551,6 +1619,11 @@ export class HoloPhone {
   update(deltaTime) {
     if (this._gridMode) return;
     this._animationFrame++;
+
+    // Update shader time uniform for animated effects
+    if (this._screenShader && this._screenShader.uniforms.time) {
+      this._screenShader.uniforms.time.value += deltaTime;
+    }
 
     // Only re-render screen for animated states
     if (this._screenState !== 'idle' || this._animationFrame % 10 === 0) {

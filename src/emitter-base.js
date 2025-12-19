@@ -172,6 +172,14 @@ export class EmitterBase {
   }
 
   /**
+   * Get the environment map texture for sharing with other objects
+   * @returns {THREE.Texture|null}
+   */
+  getEnvironmentMap() {
+    return this._backgroundEnvMap || null;
+  }
+
+  /**
    * Create the holographic beam effect
    * A lazy, atmospheric projection with waving caustics
    * Beam spreads wide and fades before reaching the geometry
@@ -811,6 +819,30 @@ export class EmitterBase {
     if (this.emitterCamera) {
       this.emitterCamera.aspect = aspect;
       this.emitterCamera.updateProjectionMatrix();
+    }
+  }
+
+  /**
+   * Set camera view offset to match main camera positioning
+   * @param {number} fullWidth - Full canvas width
+   * @param {number} fullHeight - Full canvas height
+   * @param {number} offsetX - X offset for view
+   * @param {number} offsetY - Y offset for view
+   * @param {number} width - View width
+   * @param {number} height - View height
+   */
+  setViewOffset(fullWidth, fullHeight, offsetX, offsetY, width, height) {
+    if (this.emitterCamera) {
+      this.emitterCamera.setViewOffset(fullWidth, fullHeight, offsetX, offsetY, width, height);
+    }
+  }
+
+  /**
+   * Clear camera view offset
+   */
+  clearViewOffset() {
+    if (this.emitterCamera) {
+      this.emitterCamera.clearViewOffset();
     }
   }
 

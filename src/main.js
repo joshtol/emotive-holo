@@ -113,20 +113,45 @@ class EmoAssistant {
       controls.update();
     }
 
+    // Shift camera view to position scene at layout center (67% on desktop, 50% on mobile)
+    // This allows full viewport rendering while keeping the scene positioned correctly
+    const camera = this.mascot.core3D?.renderer?.camera;
+    if (camera && !layoutScaler.isMobile) {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      // Offset X: shift view left so scene appears at 67% instead of 50%
+      // (67% - 50%) * width = 17% * width shift
+      const offsetX = (0.5 - layoutScaler.desktop.centerX / 100) * width;
+      camera.setViewOffset(width, height, offsetX, 0, width, height);
+
+      // Update view offset on resize (also updates emitter camera if present)
+      this._viewOffsetHandler = () => {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const ox = (0.5 - layoutScaler.desktop.centerX / 100) * w;
+        camera.setViewOffset(w, h, ox, 0, w, h);
+        // Also update emitter camera if it exists
+        if (this.emitterBase) {
+          this.emitterBase.setViewOffset(w, h, ox, 0, w, h);
+        }
+      };
+      window.addEventListener('resize', this._viewOffsetHandler);
+    }
+
     // Initialize 3D emitter base (add to mascot's THREE.js scene)
     // The emitter renders on a separate layer with its own fixed camera
     // so it's completely independent of OrbitControls
     const scene = this.mascot.core3D?.renderer?.scene;
-    const camera = this.mascot.core3D?.renderer?.camera;
+    const mainCamera = this.mascot.core3D?.renderer?.camera;
     const renderer = this.mascot.core3D?.renderer?.renderer;
-    if (scene && camera && renderer) {
+    if (scene && mainCamera && renderer) {
       // Enable ACES Filmic tone mapping for better HDR handling
       // This gives more realistic color response and prevents blown highlights
       const THREE = await import('three');
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.1;  // Balanced exposure for realistic colors
       // Emitter uses realistic proportions from layout scaler
-      this.emitterBase = new EmitterBase(scene, camera, renderer, {
+      this.emitterBase = new EmitterBase(scene, mainCamera, renderer, {
         scale: layout3D.emitterScale,
         position: { x: 0, y: layout3D.emitterY, z: 0 },
         rotation: { x: 0, y: 0, z: 0 }
@@ -138,7 +163,7 @@ class EmoAssistant {
       // Scale phone proportionally to emitter (0.25 was tuned for desktop emitterScale 0.32)
       const phoneScaleRatio = layout3D.emitterScale / 0.32;
       const phoneZRatio = phoneScaleRatio; // Z position also scales with emitter
-      this.holoPhone3D = new HoloPhone(this.emitterBase.scene, camera, renderer, {
+      this.holoPhone3D = new HoloPhone(this.emitterBase.scene, mainCamera, renderer, {
         // Phone should be roughly 5-6 inches wide (landscape), close to emitter base width
         scale: 0.25 * phoneScaleRatio,
         // Phone sits on the gold shelf, leaning back against the emitter body
@@ -149,6 +174,20 @@ class EmoAssistant {
         rotation: { x: -0.18, y: 0, z: Math.PI / 2 }
       });
       await this.holoPhone3D.load();
+
+      // Share environment map from emitter to phone for PBR reflections
+      // Check periodically since env map loads asynchronously
+      const shareEnvMap = () => {
+        const envMap = this.emitterBase.getEnvironmentMap();
+        if (envMap) {
+          this.holoPhone3D.setEnvironmentMap(envMap);
+          console.log('Environment map shared with phone');
+        } else {
+          // Check again in 100ms if not ready
+          setTimeout(shareEnvMap, 100);
+        }
+      };
+      shareEnvMap();
 
       // Hide CSS phone element since we're using 3D now
       if (this.elements.holoPhone) {
@@ -162,6 +201,12 @@ class EmoAssistant {
       // Also shift emitter camera up on desktop to match main camera offset
       if (!layoutScaler.isMobile && this.emitterBase.emitterCamera) {
         this.emitterBase.emitterCamera.position.y -= 0.15;
+
+        // Apply same view offset as main camera so emitter renders at 67% position
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const offsetX = (0.5 - layoutScaler.desktop.centerX / 100) * width;
+        this.emitterBase.setViewOffset(width, height, offsetX, 0, width, height);
       }
 
       // Hook into the mascot's render loop to render emitter after main scene
