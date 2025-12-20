@@ -16,12 +16,13 @@ import { EmitterBase } from './emitter-base.js';
 import { HoloPhone } from './holo-phone.js';
 import { layoutScaler } from './layout-scaler.js';
 import { StoryDirector } from './story-director.js';
+import { TutorialController } from './tutorial.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
   constructor() {
     // State
-    this.state = 'idle'; // idle, listening, thinking, speaking, meditation, carousel
+    this.state = 'idle'; // idle, listening, thinking, speaking, meditation, carousel, tutorial
     this.currentGeometry = 'crystal';
     this.mascot = null;
 
@@ -44,6 +45,7 @@ class EmoAssistant {
     this.meditation = null;
     this.carousel = null;
     this.storyDirector = null;
+    this.tutorial = null;
 
     // DOM elements
     this.elements = {
@@ -83,6 +85,12 @@ class EmoAssistant {
     // Initialize layout scaler for consistent proportions across resolutions
     layoutScaler.init();
     const layout3D = layoutScaler.get3DParams();
+
+    // Check if tutorial should show - if so, start with 'rough' geometry
+    const tutorialCheck = new TutorialController({ mascot: null, carousel: null, holoPhone: null, onComplete: () => {} });
+    if (tutorialCheck.shouldShow()) {
+      this.currentGeometry = 'rough';
+    }
 
     // Initialize 3D mascot with multiplexer material for shader effects
     this.mascot = new EmotiveMascot3D({
@@ -272,6 +280,10 @@ class EmoAssistant {
     this.carousel.onStateChange = (carouselState) => {
       if (carouselState === 'carousel') {
         this.setState('carousel');
+        // Show floating holographic title (also needed for tutorial)
+        if (this.elements.carouselTitle) {
+          this.elements.carouselTitle.classList.remove('hidden');
+        }
       } else if (carouselState === 'idle' && this.state === 'carousel') {
         this.setState('idle');
         this.resetScreen();
@@ -320,11 +332,31 @@ class EmoAssistant {
     // Setup event listeners
     this.setupEventListeners();
 
+    // Initialize tutorial controller
+    this.tutorial = new TutorialController({
+      mascot: this.mascot,
+      carousel: this.carousel,
+      holoPhone: this.holoPhone3D,
+      onComplete: () => {
+        console.log('Tutorial complete, resuming normal operation');
+        this.setState('idle');
+      }
+    });
+
     // Show ready state
     this.setStatus('Ready');
     setTimeout(() => this.setStatus(''), 2000);
 
     console.log('Emo Assistant initialized');
+
+    // Check if we should show the tutorial (first visit)
+    if (this.tutorial.shouldShow()) {
+      // Delay slightly to let everything settle
+      setTimeout(() => {
+        this.setState('tutorial');
+        this.tutorial.start();
+      }, 1500);
+    }
   }
 
   setupEventListeners() {
@@ -1444,3 +1476,6 @@ emo.init().catch(console.error);
 
 // Export for debugging
 window.emo = emo;
+
+// Export tutorial reset for debugging (run TutorialController.reset() in console)
+window.TutorialController = TutorialController;

@@ -5,7 +5,8 @@
       "Bash(findstr:*)",
       "Bash(taskkill //F //PID 56256)",
       "Bash(taskkill:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(cat:*)"
     ]
   }
 }

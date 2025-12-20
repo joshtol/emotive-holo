@@ -560,6 +560,27 @@ export class HoloPhone {
   }
 
   /**
+   * Highlight a carousel button for tutorial demonstrations
+   * @param {string} regionName - Name of the region to highlight (prev-geometry, next-geometry, confirm, cancel)
+   * @param {number} duration - Duration of highlight in ms
+   */
+  highlightButton(regionName, duration = 400) {
+    // Store highlight info - will be rendered in _renderCarousel
+    this._highlightRegion = regionName;
+    this._highlightStart = performance.now();
+    this._highlightDuration = duration;
+    this._renderScreen();
+
+    // Clear highlight after duration
+    setTimeout(() => {
+      if (this._highlightRegion === regionName) {
+        this._highlightRegion = null;
+        this._renderScreen();
+      }
+    }, duration);
+  }
+
+  /**
    * Get the screen bounds of the phone screen by projecting its 3D bounding box
    * @param {THREE.Camera} emitterCamera - The emitter's camera
    * @returns {Object|null} - { left, right, top, bottom } in screen pixels, or null
@@ -785,6 +806,64 @@ export class HoloPhone {
     } else if (variants && variants.length > 0) {
       this._drawTextVariants(ctx, variants, currentVariantIndex, 0, h, w, centerX, centerWidth);
     }
+
+    // Draw button highlight for tutorial
+    if (this._highlightRegion) {
+      this._drawButtonHighlight(ctx, w, h, bracketWidth, bracketInset, actionHeight, navHeight);
+    }
+  }
+
+  /**
+   * Draw a highlight overlay on a button region for tutorial
+   */
+  _drawButtonHighlight(ctx, w, h, bracketWidth, bracketInset, actionHeight, navHeight) {
+    const region = this._highlightRegion;
+    let x, y, rw, rh;
+
+    // Determine region bounds based on button name
+    switch (region) {
+      case 'cancel':
+        x = 0; y = 0;
+        rw = bracketWidth + bracketInset;
+        rh = actionHeight;
+        break;
+      case 'prev-geometry':
+        x = 0; y = actionHeight;
+        rw = bracketWidth + bracketInset;
+        rh = navHeight;
+        break;
+      case 'confirm':
+        x = w - bracketWidth - bracketInset;
+        y = 0;
+        rw = bracketWidth + bracketInset;
+        rh = actionHeight;
+        break;
+      case 'next-geometry':
+        x = w - bracketWidth - bracketInset;
+        y = actionHeight;
+        rw = bracketWidth + bracketInset;
+        rh = navHeight;
+        break;
+      default:
+        return;
+    }
+
+    // Calculate fade based on elapsed time
+    const elapsed = performance.now() - this._highlightStart;
+    const progress = Math.min(elapsed / this._highlightDuration, 1);
+    // Pulse: fade in then fade out
+    const alpha = progress < 0.3
+      ? progress / 0.3 * 0.4
+      : 0.4 * (1 - (progress - 0.3) / 0.7);
+
+    // Draw highlight glow
+    ctx.fillStyle = `rgba(140, 180, 255, ${alpha})`;
+    ctx.fillRect(x, y, rw, rh);
+
+    // Draw inner glow ring
+    ctx.strokeStyle = `rgba(180, 220, 255, ${alpha * 1.5})`;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 4, y + 4, rw - 8, rh - 8);
   }
 
   /**

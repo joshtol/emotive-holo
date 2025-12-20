@@ -767,3 +767,345 @@ body {
 @media (max-width: 768px) {
   /* Carousel now renders on phone screen - no DOM styles needed */
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUTORIAL - Holographic hint text for onboarding
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tutorial-hint {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out);
+}
+
+.tutorial-hint.position-top {
+  top: 15%;
+  transform: translateX(-50%) translateY(-50%);
+}
+
+.tutorial-hint.position-bottom {
+  bottom: 30%;
+  transform: translateX(-50%) translateY(50%);
+}
+
+.tutorial-hint.visible {
+  opacity: 1;
+}
+
+.tutorial-hint.position-top.visible {
+  transform: translateX(-50%) translateY(0);
+}
+
+.tutorial-hint.position-bottom.visible {
+  transform: translateX(-50%) translateY(0);
+}
+
+.tutorial-hint .hint-text {
+  display: block;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(180, 220, 255, 0.95);
+  text-shadow:
+    0 0 20px rgba(140, 180, 255, 0.8),
+    0 0 40px rgba(140, 180, 255, 0.4),
+    0 0 60px rgba(140, 180, 255, 0.2);
+  /* Holographic flicker animation */
+  animation: holo-flicker 3s ease-in-out infinite;
+}
+
+@keyframes holo-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+  52% { opacity: 0.95; }
+  54% { opacity: 0.9; }
+}
+
+/* Mobile adjustments for tutorial */
+@media (max-width: 768px) {
+  .tutorial-hint .hint-text {
+    font-size: 1.1rem;
+  }
+
+  .tutorial-hint.position-top {
+    top: 10%;
+  }
+
+  .tutorial-hint.position-bottom {
+    bottom: 35%;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tutorial Touch Indicators - Holographic bracket corners and ripples
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.tutorial-touch-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 150;
+}
+
+/* Touch indicator - asymmetric bracket corners with rounded ends
+   LEFT: top 2/3, bottom 1/3  |  RIGHT: top 1/3, bottom 2/3 */
+.tutorial-finger {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+  background: transparent;
+  --bracket-color: rgba(140, 200, 255, 0.95);
+  --bracket-glow: rgba(100, 180, 255, 0.8);
+  --bracket-thickness: 4px;
+  --bracket-radius: 4px;
+  --h-length: 16px; /* Horizontal segment length */
+}
+
+/* Top-left corner: vertical 2/3, horizontal segment */
+.tutorial-finger .bracket-top-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--h-length);
+  height: 60%;
+  background:
+    /* Horizontal bar at top */
+    linear-gradient(to right, var(--bracket-color) 100%, transparent 100%) 0 0 / 100% var(--bracket-thickness) no-repeat,
+    /* Vertical bar on left */
+    linear-gradient(to bottom, var(--bracket-color) 100%, transparent 100%) 0 0 / var(--bracket-thickness) 100% no-repeat;
+  border-radius: var(--bracket-radius) 0 0 0;
+  filter: drop-shadow(0 0 6px var(--bracket-glow)) drop-shadow(0 0 15px var(--bracket-glow));
+}
+
+/* Top-right corner: vertical 1/3, horizontal segment */
+.tutorial-finger .bracket-top-right {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: var(--h-length);
+  height: 30%;
+  background:
+    /* Horizontal bar at top */
+    linear-gradient(to left, var(--bracket-color) 100%, transparent 100%) 100% 0 / 100% var(--bracket-thickness) no-repeat,
+    /* Vertical bar on right */
+    linear-gradient(to bottom, var(--bracket-color) 100%, transparent 100%) 100% 0 / var(--bracket-thickness) 100% no-repeat;
+  border-radius: 0 var(--bracket-radius) 0 0;
+  filter: drop-shadow(0 0 6px var(--bracket-glow)) drop-shadow(0 0 15px var(--bracket-glow));
+}
+
+/* Bottom-left corner: vertical 1/3, horizontal segment */
+.tutorial-finger .bracket-bottom-left {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--h-length);
+  height: 30%;
+  background:
+    /* Horizontal bar at bottom */
+    linear-gradient(to right, var(--bracket-color) 100%, transparent 100%) 0 100% / 100% var(--bracket-thickness) no-repeat,
+    /* Vertical bar on left */
+    linear-gradient(to top, var(--bracket-color) 100%, transparent 100%) 0 100% / var(--bracket-thickness) 100% no-repeat;
+  border-radius: 0 0 0 var(--bracket-radius);
+  filter: drop-shadow(0 0 6px var(--bracket-glow)) drop-shadow(0 0 15px var(--bracket-glow));
+}
+
+/* Bottom-right corner: vertical 2/3, horizontal segment */
+.tutorial-finger .bracket-bottom-right {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--h-length);
+  height: 60%;
+  background:
+    /* Horizontal bar at bottom */
+    linear-gradient(to left, var(--bracket-color) 100%, transparent 100%) 100% 100% / 100% var(--bracket-thickness) no-repeat,
+    /* Vertical bar on right */
+    linear-gradient(to top, var(--bracket-color) 100%, transparent 100%) 100% 100% / var(--bracket-thickness) 100% no-repeat;
+  border-radius: 0 0 var(--bracket-radius) 0;
+  filter: drop-shadow(0 0 6px var(--bracket-glow)) drop-shadow(0 0 15px var(--bracket-glow));
+}
+
+/* Ripple sits inside the brackets - gold/amber for contrast against blue brackets */
+/* Continuously pulses from center outward */
+.tutorial-finger .bracket-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  box-shadow:
+    0 0 0 2px rgba(255, 200, 100, 0.9),
+    0 0 8px rgba(255, 180, 80, 0.8),
+    0 0 20px rgba(255, 160, 60, 0.5);
+  opacity: 0;
+}
+
+.tutorial-finger .bracket-ripple.visible {
+  opacity: 1;
+  animation: ripple-pulse 0.8s ease-out infinite;
+}
+
+@keyframes ripple-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 1;
+    box-shadow:
+      0 0 0 3px rgba(255, 200, 100, 1),
+      0 0 10px rgba(255, 180, 80, 0.9),
+      0 0 25px rgba(255, 160, 60, 0.6);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(4);
+    opacity: 0;
+    box-shadow:
+      0 0 0 1px rgba(255, 200, 100, 0.3),
+      0 0 15px rgba(255, 180, 80, 0.2),
+      0 0 30px rgba(255, 160, 60, 0.1);
+  }
+}
+
+/* Huge ripple for tap gesture - much more visible */
+@keyframes ripple-pulse-huge {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    box-shadow:
+      0 0 0 5px rgba(255, 200, 100, 1),
+      0 0 20px rgba(255, 180, 80, 1),
+      0 0 50px rgba(255, 160, 60, 0.8);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(8);
+    opacity: 0;
+    box-shadow:
+      0 0 0 2px rgba(255, 200, 100, 0.4),
+      0 0 30px rgba(255, 180, 80, 0.3),
+      0 0 60px rgba(255, 160, 60, 0.2);
+  }
+}
+
+/* Tap finger - larger brackets with visible dark ripple */
+.tutorial-finger.tap-finger {
+  width: 150px;
+  height: 150px;
+}
+
+.tutorial-finger.tap-finger .bracket-ripple {
+  width: 30px;
+  height: 30px;
+  /* Dark gold/bronze ring - visible against bright backgrounds */
+  background: rgba(120, 80, 20, 0.7);
+  border: 4px solid rgba(100, 60, 10, 0.9);
+  box-shadow:
+    0 0 0 6px rgba(80, 50, 0, 0.8),
+    0 0 20px rgba(60, 30, 0, 0.6),
+    inset 0 0 10px rgba(40, 20, 0, 0.5);
+}
+
+.tutorial-finger.tap-finger .bracket-ripple.visible {
+  animation: ripple-pulse-huge 0.8s ease-out infinite;
+}
+
+/* Expanding state no longer needed - animation handles it */
+.tutorial-finger .bracket-ripple.expanding {
+  /* Keep for compatibility but animation overrides */
+}
+
+/* Zoom-in animation: brackets fly in from off-screen and shrink to target */
+.tutorial-finger.zoom-in {
+  opacity: 1;
+  animation: bracket-zoom-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes bracket-zoom-in {
+  0% {
+    transform: translate(-50%, -50%) scale(8);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+.tutorial-finger.pressing {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(0.9);
+}
+
+.tutorial-finger.releasing {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.1);
+  transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+}
+
+/* Holographic ripple effect - standalone version for non-bracket use */
+.tutorial-ripple {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  background: transparent;
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px rgba(140, 200, 255, 0.9),
+    0 0 0 4px rgba(100, 180, 255, 0.6),
+    0 0 0 8px rgba(80, 160, 255, 0.3),
+    0 0 20px rgba(140, 200, 255, 0.8),
+    0 0 40px rgba(100, 180, 255, 0.4);
+  transition: transform 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.7s ease-out, box-shadow 0.7s ease-out;
+}
+
+.tutorial-ripple.expanding {
+  transform: translate(-50%, -50%) scale(8);
+  box-shadow:
+    0 0 0 1px rgba(140, 200, 255, 0.3),
+    0 0 0 2px rgba(100, 180, 255, 0.15),
+    0 0 0 4px rgba(80, 160, 255, 0.05),
+    0 0 30px rgba(140, 200, 255, 0.2),
+    0 0 60px rgba(100, 180, 255, 0.1);
+  opacity: 0;
+}
+
+/* Drag trail - shows motion path */
+.tutorial-drag-trail {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 2px dashed rgba(140, 200, 255, 0.5);
+  border-radius: 50%;
+  box-shadow: 0 0 15px rgba(140, 200, 255, 0.3);
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+  pointer-events: none;
+}
+
+/* Pinch finger specific styling - slightly smaller */
+.tutorial-finger.pinch-finger {
+  width: 55px;
+  height: 55px;
+}
+
+/* Drag finger specific styling */
+.tutorial-finger.drag-finger {
+  width: 55px;
+  height: 55px;
+}
