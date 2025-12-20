@@ -33,8 +33,17 @@ export class HoloPhone {
     this._animationFrame = 0;
     this._progress = 0;  // TTS progress 0-1
 
+    // Button press flash state - tracks which button is currently pressed
+    this._pressedButton = null;  // 'cancel', 'confirm', 'prev-geometry', 'next-geometry'
+    this._pressStart = 0;
+    this._pressDuration = 200;  // ms for flash animation
+
     // Meditation state
     this._meditationData = null;  // { phase, timer, cycle, maxCycles }
+
+    // Logo image for idle state
+    this._logoImage = null;
+    this._loadLogoImage();
 
     // Carousel state
     this._carouselData = null;  // { geometries, currentIndex, currentVariantIndex, variants, phase }
@@ -62,6 +71,22 @@ export class HoloPhone {
 
     // Create screen canvas for dynamic text
     this._createScreenCanvas();
+  }
+
+  /**
+   * Load the Emotive Engine full logotype SVG for idle state display
+   * Using Eye Tea Green version (#84CFC5)
+   */
+  _loadLogoImage() {
+    const img = new Image();
+    img.onload = () => {
+      this._logoImage = img;
+      // Re-render if we're in idle state
+      if (this._screenState === 'idle') {
+        this._renderScreen();
+      }
+    };
+    img.src = './assets/emotive-engine-full-teal.svg';
   }
 
   /**
@@ -150,39 +175,91 @@ export class HoloPhone {
   }
 
   /**
-   * Draw idle state - "Hold to speak" prompt
+   * Draw idle state - "Hold to speak" prompt with Emotive Engine full logotype
+   * Uses Poppins font with teal glow (Eye Tea Green #84CFC5)
    */
   _drawIdleState(ctx, w, h) {
-    ctx.fillStyle = '#40e0d0';
-    ctx.font = 'bold 36px "Segoe UI", Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(this._screenText, w / 2, h / 2);
+    // Draw Emotive Engine full logotype with pulsing glow
+    const time = performance.now() / 1000;
+    const pulse = Math.sin(time * 1.57) * 0.5 + 0.5;  // ~4 second breathing cycle
 
-    // Subtle pulsing indicator
-    const pulse = Math.sin(this._animationFrame * 0.05) * 0.3 + 0.7;
-    ctx.globalAlpha = pulse;
-    ctx.beginPath();
-    ctx.arc(w / 2, h / 2 + 50, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#40e0d0';
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    // Calculate logo dimensions first to position text relative to it
+    let logoHeight = 0;
+    if (this._logoImage) {
+      // Full logotype is 920x316, scale to fit nicely
+      const aspectRatio = this._logoImage.width / this._logoImage.height;
+      const logoWidth = w * 0.55;  // 55% of canvas width
+      logoHeight = logoWidth / aspectRatio;
+
+      // Center the combined text + logo vertically
+      // Total height = text (~24px) + gap (12px) + logoHeight
+      const totalHeight = 24 + 12 + logoHeight;
+      const startY = (h - totalHeight) / 2;
+
+      const logoX = (w - logoWidth) / 2;
+      const logoY = startY + 24 + 12;  // Below text + gap
+
+      // Draw Eye Tea Green logotype with matching glow
+      ctx.globalAlpha = 0.6 + pulse * 0.4;  // 0.6 to 1.0 alpha
+      ctx.shadowColor = `rgba(132, 207, 197, ${0.5 + pulse * 0.5})`;  // Eye Tea Green glow
+      ctx.shadowBlur = 8 + pulse * 12;
+      ctx.drawImage(this._logoImage, logoX, logoY, logoWidth, logoHeight);
+
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+
+      // Text positioned above logo, centered in the layout
+      ctx.shadowColor = 'rgba(132, 207, 197, 0.6)';
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 24px Poppins, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this._screenText, w / 2, startY + 12);
+      ctx.shadowBlur = 0;
+    } else {
+      // Fallback if logo not loaded - just show text centered
+      ctx.shadowColor = 'rgba(132, 207, 197, 0.6)';
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 24px Poppins, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this._screenText, w / 2, h / 2);
+      ctx.shadowBlur = 0;
+    }
   }
 
   /**
-   * Draw listening state - animated waveform
+   * Draw listening state - animated waveform with Supple Blue glow and cancel bracket
+   * Uses Supple Blue (#32ACE2) to indicate active input state
    */
   _drawListeningState(ctx, w, h) {
-    ctx.fillStyle = '#40e0d0';
-    ctx.font = '24px "Segoe UI", Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Listening...', w / 2, h / 2 - 40);
+    // Clear hit regions and draw cancel bracket
+    this._speakingHitRegions = [];
+    this._drawCancelBracket(ctx, w, h);
 
-    // Animated waveform bars
+    // Content area starts after bracket
+    const bracketWidth = 80;
+    const bracketInset = 4;
+    const contentStartX = bracketWidth + bracketInset + 20;
+    const contentWidth = w - contentStartX - 20;
+    const contentCenterX = contentStartX + contentWidth / 2;
+
+    // Text with blue glow
+    ctx.shadowColor = 'rgba(50, 172, 226, 0.7)';
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '400 24px Poppins, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Listening...', contentCenterX, h / 2 - 40);
+    ctx.shadowBlur = 0;
+
+    // Animated waveform bars with Supple Blue glow
     const barCount = 7;
-    const barWidth = 16;
-    const barSpacing = 24;
-    const startX = w / 2 - (barCount * barSpacing) / 2;
+    const barWidth = 14;
+    const barSpacing = 22;
+    const startX = contentCenterX - (barCount * barSpacing) / 2;
 
     for (let i = 0; i < barCount; i++) {
       const phase = this._animationFrame * 0.15 + i * 0.8;
@@ -190,30 +267,48 @@ export class HoloPhone {
       const x = startX + i * barSpacing;
       const y = h / 2 + 20 - height / 2;
 
-      ctx.fillStyle = `rgba(64, 224, 208, ${0.6 + Math.sin(phase) * 0.4})`;
-      ctx.fillRect(x, y, barWidth, height);
+      // Bar with Supple Blue glow
+      ctx.shadowColor = 'rgba(50, 172, 226, 0.8)';
+      ctx.shadowBlur = 8 + Math.sin(phase) * 4;
+      ctx.fillStyle = `rgba(50, 172, 226, ${0.7 + Math.sin(phase) * 0.3})`;
+      ctx.beginPath();
+      ctx.roundRect(x, y, barWidth, height, barWidth / 3);
+      ctx.fill();
     }
+    ctx.shadowBlur = 0;
   }
 
   /**
-   * Draw processing state - spinning indicator with cancel button
+   * Draw processing state - spinning indicator with cancel bracket
+   * Uses Smooth Azure (#4090CE) to indicate work in progress
    */
   _drawProcessingState(ctx, w, h) {
     // Clear hit regions for processing state (reuse speaking hit regions)
     this._speakingHitRegions = [];
 
-    // Draw cancel button in top-left corner (same as speaking state)
-    this._drawCancelButton(ctx);
+    // Draw cancel bracket (left side, full height)
+    this._drawCancelBracket(ctx, w, h);
 
-    ctx.fillStyle = '#40e0d0';
-    ctx.font = '24px "Segoe UI", Arial, sans-serif';
+    // Content area starts after bracket
+    const bracketWidth = 80;
+    const bracketInset = 4;
+    const contentStartX = bracketWidth + bracketInset + 20;
+    const contentWidth = w - contentStartX - 20;
+    const contentCenterX = contentStartX + contentWidth / 2;
+
+    // Text with Smooth Azure glow
+    ctx.shadowColor = 'rgba(64, 144, 206, 0.7)';
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '400 24px Poppins, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Processing...', w / 2, h / 2 - 30);
+    ctx.fillText('Processing...', contentCenterX, h / 2 - 30);
+    ctx.shadowBlur = 0;
 
-    // Spinning dots
+    // Spinning dots with Smooth Azure glow
     const dotCount = 8;
     const radius = 25;
-    const centerX = w / 2;
+    const centerX = contentCenterX;
     const centerY = h / 2 + 30;
 
     for (let i = 0; i < dotCount; i++) {
@@ -222,76 +317,115 @@ export class HoloPhone {
       const y = centerY + Math.sin(angle) * radius;
       const alpha = (Math.sin(angle - this._animationFrame * 0.1) + 1) / 2;
 
+      ctx.shadowColor = 'rgba(64, 144, 206, 0.8)';
+      ctx.shadowBlur = 6 + alpha * 8;
       ctx.beginPath();
       ctx.arc(x, y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(64, 224, 208, ${0.3 + alpha * 0.7})`;
+      ctx.fillStyle = `rgba(64, 144, 206, ${0.4 + alpha * 0.6})`;
       ctx.fill();
     }
+    ctx.shadowBlur = 0;
   }
 
   /**
-   * Draw cancel button in top-left corner (bracket style)
-   * Reused by speaking and processing states
+   * Draw unified cancel bracket on left side - matches carousel bracket style
+   * Uses Magenta Majesty (#DD4A9A) for attention-grabbing cancel action
+   * Full-height left bracket with cancel icon centered
    */
-  _drawCancelButton(ctx) {
-    const cancelSize = 50;
-    const cancelX = 12;
-    const cancelY = 12;
-    const cornerRadius = 12;
+  _drawCancelBracket(ctx, w, h) {
+    const bracketWidth = 80;
+    const bracketLineWidth = 4;
+    const bracketInset = 4;
+    const phoneCornerRadius = 28;
+    const edgeInset = 4;
 
-    // Cancel bracket background
-    ctx.strokeStyle = 'rgba(255, 100, 100, 0.6)';
-    ctx.lineWidth = 3;
+    // Check for pressed button - same flash calculation as carousel
+    const cancelPressed = this._pressedButton === 'cancel';
+    const pressProgress = cancelPressed
+      ? Math.min((performance.now() - this._pressStart) / this._pressDuration, 1)
+      : 0;
+    // Flash fades out over time
+    const flashIntensity = pressProgress < 0.3
+      ? pressProgress / 0.3
+      : 1 - (pressProgress - 0.3) / 0.7;
+
+    // Colors - bright flash when pressed
+    const magentaFlash = `rgba(221, 74, 154, ${0.9 + flashIntensity * 0.1})`;
+    const cancelColor = cancelPressed ? magentaFlash : 'rgba(221, 74, 154, 0.8)';
+
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cancelX + cancelSize, cancelY + 4);
-    ctx.lineTo(cancelX + cornerRadius, cancelY + 4);
-    ctx.quadraticCurveTo(cancelX + 4, cancelY + 4, cancelX + 4, cancelY + cornerRadius);
-    ctx.lineTo(cancelX + 4, cancelY + cancelSize - cornerRadius);
-    ctx.quadraticCurveTo(cancelX + 4, cancelY + cancelSize - 4, cancelX + cornerRadius, cancelY + cancelSize - 4);
-    ctx.lineTo(cancelX + cancelSize, cancelY + cancelSize - 4);
-    ctx.stroke();
 
-    // Cancel X icon
-    ctx.fillStyle = '#ff6b6b';
-    ctx.font = 'bold 24px Arial';
+    // Draw full-height left bracket [
+    ctx.strokeStyle = cancelColor;
+    ctx.lineWidth = cancelPressed ? bracketLineWidth + 2 : bracketLineWidth;
+    if (cancelPressed) {
+      ctx.shadowColor = '#DD4A9A';
+      ctx.shadowBlur = 20 * flashIntensity;
+    }
+    ctx.beginPath();
+    ctx.moveTo(bracketInset + bracketWidth, edgeInset);
+    ctx.lineTo(bracketInset + phoneCornerRadius, edgeInset);
+    ctx.quadraticCurveTo(bracketInset + edgeInset, edgeInset, bracketInset + edgeInset, edgeInset + phoneCornerRadius);
+    ctx.lineTo(bracketInset + edgeInset, h - edgeInset - phoneCornerRadius);
+    ctx.quadraticCurveTo(bracketInset + edgeInset, h - edgeInset, bracketInset + phoneCornerRadius, h - edgeInset);
+    ctx.lineTo(bracketInset + bracketWidth, h - edgeInset);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Cancel icon (✕) centered in bracket - with strong flash effect
+    const cancelCenterX = bracketInset + bracketWidth / 2 + 4;
+    const cancelCenterY = h / 2;
+    ctx.fillStyle = cancelPressed ? `rgba(255, 150, 200, ${0.8 + flashIntensity * 0.2})` : '#DD4A9A';
+    if (cancelPressed) {
+      ctx.shadowColor = '#FF69B4';
+      ctx.shadowBlur = 25 * flashIntensity;
+    }
+    ctx.font = '700 26px Poppins, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('✕', cancelX + cancelSize / 2 + 2, cancelY + cancelSize / 2);
+    ctx.fillText('✕', cancelCenterX, cancelCenterY);
+    ctx.shadowBlur = 0;
 
-    // Hit region for cancel
+    // Hit region for cancel - full height bracket area
     this._speakingHitRegions.push({
       name: 'cancel',
-      x: cancelX,
-      y: cancelY,
-      w: cancelSize,
-      h: cancelSize
+      x: 0,
+      y: 0,
+      w: bracketWidth + bracketInset,
+      h: h
     });
   }
 
   /**
-   * Draw speaking state - text with animated indicator and cancel button
+   * Draw speaking state - text with animated indicator and cancel bracket
    */
   _drawSpeakingState(ctx, w, h) {
     // Clear hit regions for speaking state
     this._speakingHitRegions = [];
 
-    // Draw cancel button
-    this._drawCancelButton(ctx);
+    // Draw cancel bracket (left side, full height)
+    this._drawCancelBracket(ctx, w, h);
 
-    // Draw text - soft white with subtle cyan glow for visibility
-    ctx.fillStyle = 'rgba(230, 245, 245, 0.95)';
-    ctx.font = '500 28px "Segoe UI", Arial, sans-serif';
+    // Content area starts after bracket
+    const bracketWidth = 80;
+    const bracketInset = 4;
+    const contentStartX = bracketWidth + bracketInset + 20;
+    const contentWidth = w - contentStartX - 20;
+    const contentCenterX = contentStartX + contentWidth / 2;
+
+    // Draw text - clean white with subtle teal glow
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '400 26px Poppins, sans-serif';
     ctx.textAlign = 'center';
-    ctx.shadowColor = 'rgba(64, 224, 208, 0.6)';
-    ctx.shadowBlur = 8;
+    ctx.shadowColor = 'rgba(132, 207, 197, 0.5)';
+    ctx.shadowBlur = 15;
 
     // Wrap text if needed
     const words = this._screenText.split(' ');
     let lines = [];
     let currentLine = '';
-    const maxWidth = w - 80;  // More padding for cancel button
+    const maxWidth = contentWidth - 20;
 
     for (const word of words) {
       const testLine = currentLine + (currentLine ? ' ' : '') + word;
@@ -305,33 +439,33 @@ export class HoloPhone {
     }
     if (currentLine) lines.push(currentLine);
 
-    // Draw lines centered
+    // Draw lines centered in content area
     const lineHeight = 32;
     const startY = h / 2 - (lines.length * lineHeight) / 2;
     lines.forEach((line, i) => {
-      ctx.fillText(line, w / 2, startY + i * lineHeight);
+      ctx.fillText(line, contentCenterX, startY + i * lineHeight);
     });
 
     // Reset shadow for other elements
     ctx.shadowBlur = 0;
 
-    // Progress bar at bottom
+    // Progress bar at bottom - teal theme (in content area)
     const barY = h - 35;
-    const barWidth = w - 80;
+    const barWidth = contentWidth - 20;
     const barHeight = 4;
-    const barX = 40;
+    const barX = contentStartX + 10;
 
-    // Background track
-    ctx.fillStyle = 'rgba(64, 224, 208, 0.2)';
+    // Background track - subtle gray
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.beginPath();
     ctx.roundRect(barX, barY, barWidth, barHeight, 2);
     ctx.fill();
 
-    // Filled progress
+    // Filled progress with teal glow
     if (this._progress > 0) {
-      ctx.fillStyle = '#40e0d0';
-      ctx.shadowColor = '#40e0d0';
-      ctx.shadowBlur = 8;
+      ctx.shadowColor = 'rgba(132, 207, 197, 0.9)';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#84CFC5';
       ctx.beginPath();
       ctx.roundRect(barX, barY, barWidth * this._progress, barHeight, 2);
       ctx.fill();
@@ -368,12 +502,20 @@ export class HoloPhone {
 
   /**
    * Draw meditation state - clean, focused UI for guided breathing
-   * Layout: Phase instruction at top, large timer in center, minimal progress dots
+   * Layout: Cancel bracket on left, phase/timer in content area, progress dots at bottom
+   * Uses Poppins font and teal accents
    */
   _drawMeditationState(ctx, w, h) {
-    // Draw cancel button (smaller, more subtle)
+    // Draw cancel bracket (left side, full height)
     this._speakingHitRegions = [];
-    this._drawMeditationCancelButton(ctx);
+    this._drawCancelBracket(ctx, w, h);
+
+    // Content area starts after bracket
+    const bracketWidth = 80;
+    const bracketInset = 4;
+    const contentStartX = bracketWidth + bracketInset + 20;
+    const contentWidth = w - contentStartX - 20;
+    const contentCenterX = contentStartX + contentWidth / 2;
 
     const data = this._meditationData;
     const phase = data?.phase || this._screenText || 'Breathe';
@@ -381,46 +523,43 @@ export class HoloPhone {
     const cycle = data?.cycle ?? 0;
     const maxCycles = data?.maxCycles ?? 5;
 
-    // High contrast colors
-    const textColor = 'rgba(255, 255, 255, 0.98)';
-
-    // Split layout: Phase instruction on left, Timer on right
+    // Split layout: Phase instruction on left of content, Timer on right
     if (timer !== '') {
-      // Left side: Phase instruction - large, left-justified
-      ctx.fillStyle = textColor;
-      ctx.font = '300 42px "Segoe UI", Arial, sans-serif';
+      // Left side of content: Phase instruction - large, left-justified
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '400 36px Poppins, sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(phase, 70, h / 2);  // Left margin for cancel button
+      ctx.fillText(phase, contentStartX, h / 2);
 
-      // Right side: Large timer number
-      ctx.fillStyle = textColor;
-      ctx.font = '200 100px "Segoe UI", Arial, sans-serif';
-      ctx.textAlign = 'center';
+      // Right side: Large timer number with subtle teal glow
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 80px Montserrat, sans-serif';
+      ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(180, 160, 220, 0.4)';
-      ctx.shadowBlur = 20;
-      ctx.fillText(String(timer), w * 0.78, h / 2);
+      ctx.shadowColor = 'rgba(132, 207, 197, 0.4)';
+      ctx.shadowBlur = 25;
+      ctx.fillText(String(timer), w - 30, h / 2);
       ctx.shadowBlur = 0;
     } else {
-      // No timer - show message centered (intro/outro/affirmations)
-      ctx.fillStyle = textColor;
-      ctx.font = '400 28px "Segoe UI", Arial, sans-serif';
+      // No timer - show message centered in content area (intro/outro/affirmations)
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '400 26px Poppins, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(180, 160, 220, 0.3)';
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = 'rgba(132, 207, 197, 0.4)';
+      ctx.shadowBlur = 15;
 
       // Wrap text if needed
       const words = this._screenText.split(' ');
       let lines = [];
       let currentLine = '';
-      const maxWidth = w - 120;
+      const maxTextWidth = contentWidth - 20;
 
       for (const word of words) {
         const testLine = currentLine + (currentLine ? ' ' : '') + word;
         const metrics = ctx.measureText(testLine);
-        if (metrics.width > maxWidth && currentLine) {
+        if (metrics.width > maxTextWidth && currentLine) {
           lines.push(currentLine);
           currentLine = word;
         } else {
@@ -432,18 +571,18 @@ export class HoloPhone {
       const lineHeight = 36;
       const textStartY = h / 2 - (lines.length * lineHeight) / 2;
       lines.forEach((line, i) => {
-        ctx.fillText(line, w / 2, textStartY + i * lineHeight);
+        ctx.fillText(line, contentCenterX, textStartY + i * lineHeight);
       });
 
       ctx.shadowBlur = 0;
     }
 
-    // Progress dots at bottom (minimal, elegant)
+    // Progress dots at bottom - teal theme (centered in content area)
     const dotRadius = 5;
     const dotSpacing = 20;
     const dotsY = h - 28;
     const totalDotsWidth = (maxCycles - 1) * dotSpacing;
-    const dotsStartX = (w - totalDotsWidth) / 2;
+    const dotsStartX = contentCenterX - totalDotsWidth / 2;
 
     for (let i = 0; i < maxCycles; i++) {
       const dotX = dotsStartX + i * dotSpacing;
@@ -454,59 +593,23 @@ export class HoloPhone {
       ctx.arc(dotX, dotsY, isCurrent ? dotRadius + 1 : dotRadius, 0, Math.PI * 2);
 
       if (isComplete) {
-        // Completed cycles - bright lavender with glow
-        ctx.fillStyle = 'rgba(200, 180, 255, 1)';
-        ctx.shadowColor = 'rgba(200, 180, 255, 0.8)';
+        // Completed cycles - bright teal with glow
+        ctx.fillStyle = '#84CFC5';
+        ctx.shadowColor = 'rgba(132, 207, 197, 0.8)';
         ctx.shadowBlur = 8;
       } else if (isCurrent) {
-        // Current cycle - semi-bright
-        ctx.fillStyle = 'rgba(180, 160, 220, 0.7)';
+        // Current cycle - semi-bright teal
+        ctx.fillStyle = 'rgba(132, 207, 197, 0.6)';
         ctx.shadowBlur = 0;
       } else {
-        // Future cycles - visible but dim
-        ctx.fillStyle = 'rgba(140, 130, 160, 0.5)';
+        // Future cycles - dim
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.shadowBlur = 0;
       }
 
       ctx.fill();
       ctx.shadowBlur = 0;
     }
-  }
-
-  /**
-   * Draw minimal cancel button for meditation (top-left, subtle)
-   */
-  _drawMeditationCancelButton(ctx) {
-    const size = 36;
-    const x = 16;
-    const y = 16;
-
-    // Subtle circular background
-    ctx.fillStyle = 'rgba(255, 100, 100, 0.15)';
-    ctx.beginPath();
-    ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // X icon
-    ctx.strokeStyle = 'rgba(255, 100, 100, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    const inset = 12;
-    ctx.beginPath();
-    ctx.moveTo(x + inset, y + inset);
-    ctx.lineTo(x + size - inset, y + size - inset);
-    ctx.moveTo(x + size - inset, y + inset);
-    ctx.lineTo(x + inset, y + size - inset);
-    ctx.stroke();
-
-    // Hit region
-    this._speakingHitRegions.push({
-      name: 'cancel',
-      x: x,
-      y: y,
-      w: size,
-      h: size
-    });
   }
 
   // ==================== CAROUSEL STATE ====================
@@ -518,7 +621,7 @@ export class HoloPhone {
     'default': '#ffffff',  // Quartz (white)
     'ruby': '#e0115f',     // Ruby (red)
     'citrine': '#e4a700',  // Citrine (yellow/orange)
-    'emerald': '#50c878',  // Emerald (green)
+    'emerald': '#4AB888',  // Brand-harmonized mint green (HSL 156°)
     'sapphire': '#0f52ba', // Sapphire (blue)
     'amethyst': '#9966cc'  // Amethyst (purple)
   };
@@ -575,6 +678,26 @@ export class HoloPhone {
     setTimeout(() => {
       if (this._highlightRegion === regionName) {
         this._highlightRegion = null;
+        this._renderScreen();
+      }
+    }, duration);
+  }
+
+  /**
+   * Flash a button to indicate it was pressed
+   * @param {string} buttonName - Name of the button ('cancel', 'confirm', 'prev-geometry', 'next-geometry')
+   * @param {number} duration - Duration of flash in ms (default 200)
+   */
+  flashButton(buttonName, duration = 200) {
+    this._pressedButton = buttonName;
+    this._pressStart = performance.now();
+    this._pressDuration = duration;
+    this._renderScreen();
+
+    // Clear press state after duration
+    setTimeout(() => {
+      if (this._pressedButton === buttonName) {
+        this._pressedButton = null;
         this._renderScreen();
       }
     }, duration);
@@ -750,6 +873,25 @@ export class HoloPhone {
     const currentGeom = geometries[currentIndex];
     if (!currentGeom) return;
 
+    // === CAROUSEL GRADIENT BACKGROUND ===
+    // Consistent crystal blue/teal colors, alternating gradient direction per geometry
+    // Even index = top-left to bottom-right, Odd index = bottom-right to top-left
+    const gradientStart = 'rgba(64, 144, 206, 0.4)';  // Smooth Azure
+    const gradientEnd = 'rgba(26, 58, 77, 0.3)';      // Deep navy
+
+    const diagonal = Math.max(w, h);
+    const isEvenIndex = currentIndex % 2 === 0;
+
+    // Alternate gradient direction based on geometry index
+    const bgGradient = isEvenIndex
+      ? ctx.createLinearGradient(0, 0, diagonal, diagonal)           // Top-left to bottom-right
+      : ctx.createLinearGradient(diagonal, diagonal, 0, 0);          // Bottom-right to top-left
+
+    bgGradient.addColorStop(0, gradientStart);
+    bgGradient.addColorStop(1, gradientEnd);
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, w, h);
+
     // Phone corner radius - matches the physical phone bezel curve
     const phoneCornerRadius = 28;
 
@@ -883,11 +1025,38 @@ export class HoloPhone {
     const topInset = edgeInset;
     const bottomInset = edgeInset;
 
-    // Colors
-    const bracketGlow = 'rgba(64, 224, 208, 0.25)';
-    const cancelColor = 'rgba(255, 100, 100, 0.8)';
-    const confirmColor = 'rgba(80, 200, 120, 0.8)';
-    const navColor = 'rgba(64, 224, 208, 0.9)';
+    // Check for pressed buttons and calculate flash intensity
+    const pressProgress = this._pressedButton
+      ? Math.min((performance.now() - this._pressStart) / this._pressDuration, 1)
+      : 0;
+    // Flash fades out over time
+    const flashIntensity = pressProgress < 0.3
+      ? pressProgress / 0.3
+      : 1 - (pressProgress - 0.3) / 0.7;
+
+    // Determine which button is pressed on this side
+    const cancelPressed = this._pressedButton === 'cancel' && side === 'left';
+    const confirmPressed = this._pressedButton === 'confirm' && side === 'right';
+    const prevPressed = this._pressedButton === 'prev-geometry' && side === 'left';
+    const nextPressed = this._pressedButton === 'next-geometry' && side === 'right';
+
+    // Base colors - Eye Tea Green teal theme for navigation
+    const bracketGlow = 'rgba(132, 207, 197, 0.2)';
+
+    // Flash colors - bright versions for feedback
+    // Eye Tea Green teal for navigation (prev/next)
+    const tealFlash = `rgba(132, 207, 197, ${0.9 + flashIntensity * 0.1})`;
+    // Magenta Majesty for cancel (brand color)
+    const magentaFlash = `rgba(221, 74, 154, ${0.9 + flashIntensity * 0.1})`;
+    // Brand-harmonized mint green for confirm - HSL(156°) bridges Eye Tea Green (170°) and pure green (120°)
+    const greenFlash = `rgba(92, 212, 158, ${0.9 + flashIntensity * 0.1})`;
+
+    // Default colors - Teal for navigation, Magenta for cancel
+    const cancelColor = cancelPressed ? magentaFlash : 'rgba(221, 74, 154, 0.8)';
+    // Brand-harmonized confirm: #4AB888 = HSL(156, 47%, 51%) - cool mint that complements Eye Tea Green
+    const confirmColor = confirmPressed ? greenFlash : 'rgba(74, 184, 136, 0.8)';
+    const prevColor = prevPressed ? tealFlash : 'rgba(132, 207, 197, 0.9)';
+    const nextColor = nextPressed ? tealFlash : 'rgba(132, 207, 197, 0.9)';
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -897,22 +1066,33 @@ export class HoloPhone {
 
       // Top 1/3 bracket (Cancel zone) - follows phone corner curve
       ctx.strokeStyle = cancelColor;
-      ctx.lineWidth = lineWidth;
+      ctx.lineWidth = cancelPressed ? lineWidth + 2 : lineWidth;
+      if (cancelPressed) {
+        ctx.shadowColor = '#DD4A9A';
+        ctx.shadowBlur = 15 * flashIntensity;
+      }
       ctx.beginPath();
       ctx.moveTo(x + width, topInset);
       ctx.lineTo(x + cornerRadius, topInset);
       ctx.quadraticCurveTo(x + edgeInset, topInset, x + edgeInset, topInset + cornerRadius);
       ctx.lineTo(x + edgeInset, splitY - 6);
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
       // Bottom 2/3 bracket (Prev zone)
-      ctx.strokeStyle = navColor;
+      ctx.strokeStyle = prevColor;
+      ctx.lineWidth = prevPressed ? lineWidth + 2 : lineWidth;
+      if (prevPressed) {
+        ctx.shadowColor = '#84CFC5';
+        ctx.shadowBlur = 15 * flashIntensity;
+      }
       ctx.beginPath();
       ctx.moveTo(x + edgeInset, splitY + 6);
       ctx.lineTo(x + edgeInset, height - bottomInset - cornerRadius);
       ctx.quadraticCurveTo(x + edgeInset, height - bottomInset, x + cornerRadius, height - bottomInset);
       ctx.lineTo(x + width, height - bottomInset);
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
       // Horizontal divider line (subtle)
       ctx.strokeStyle = bracketGlow;
@@ -922,43 +1102,60 @@ export class HoloPhone {
       ctx.lineTo(x + width - 15, splitY);
       ctx.stroke();
 
-      // Cancel icon (✕) in top 1/3
+      // Cancel icon (✕) in top 1/3 - Magenta Majesty
       const cancelCenterX = x + width / 2 + 4;
       const cancelCenterY = actionHeight / 2 + 2;
-      ctx.fillStyle = '#ff6b6b';
-      ctx.font = 'bold 28px Arial';
+      ctx.fillStyle = cancelPressed ? '#E85DB0' : '#DD4A9A';
+      ctx.shadowColor = '#DD4A9A';
+      ctx.shadowBlur = cancelPressed ? 15 * flashIntensity : 0;
+      ctx.font = '700 26px Poppins, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✕', cancelCenterX, cancelCenterY);
+      ctx.shadowBlur = 0;
 
-      // Prev arrow (‹) in bottom 2/3 - mirror the top icon position
+      // Prev arrow (‹) in bottom 2/3 - Eye Tea Green teal
       const prevCenterX = x + width / 2 + 4;
       const prevCenterY = height - actionHeight / 2 - 2;  // Mirror from bottom
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 56px Arial';
+      ctx.fillStyle = prevPressed ? '#84CFC5' : '#ffffff';
+      ctx.shadowColor = '#84CFC5';
+      ctx.shadowBlur = prevPressed ? 15 * flashIntensity : 0;
+      ctx.font = '700 52px Poppins, sans-serif';
       ctx.fillText('‹', prevCenterX, prevCenterY);
+      ctx.shadowBlur = 0;
 
     } else {
       // Draw ] bracket shape - split at 1/3
 
       // Top 1/3 bracket (Confirm zone) - follows phone corner curve
       ctx.strokeStyle = confirmColor;
-      ctx.lineWidth = lineWidth;
+      ctx.lineWidth = confirmPressed ? lineWidth + 2 : lineWidth;
+      if (confirmPressed) {
+        ctx.shadowColor = '#5CD49E';  // Brand-harmonized mint green glow
+        ctx.shadowBlur = 15 * flashIntensity;
+      }
       ctx.beginPath();
       ctx.moveTo(x, topInset);
       ctx.lineTo(x + width - cornerRadius, topInset);
       ctx.quadraticCurveTo(x + width - edgeInset, topInset, x + width - edgeInset, topInset + cornerRadius);
       ctx.lineTo(x + width - edgeInset, splitY - 6);
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
       // Bottom 2/3 bracket (Next zone)
-      ctx.strokeStyle = navColor;
+      ctx.strokeStyle = nextColor;
+      ctx.lineWidth = nextPressed ? lineWidth + 2 : lineWidth;
+      if (nextPressed) {
+        ctx.shadowColor = '#84CFC5';
+        ctx.shadowBlur = 15 * flashIntensity;
+      }
       ctx.beginPath();
       ctx.moveTo(x + width - edgeInset, splitY + 6);
       ctx.lineTo(x + width - edgeInset, height - bottomInset - cornerRadius);
       ctx.quadraticCurveTo(x + width - edgeInset, height - bottomInset, x + width - cornerRadius, height - bottomInset);
       ctx.lineTo(x, height - bottomInset);
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
       // Horizontal divider line (subtle)
       ctx.strokeStyle = bracketGlow;
@@ -968,34 +1165,40 @@ export class HoloPhone {
       ctx.lineTo(x + width - edgeInset, splitY);
       ctx.stroke();
 
-      // Confirm icon (✓) in top 1/3
+      // Confirm icon (✓) in top 1/3 - Brand-harmonized mint green
       const confirmCenterX = x + width / 2 - 4;
       const confirmCenterY = actionHeight / 2 + 2;
-      ctx.fillStyle = '#50c878';
-      ctx.font = 'bold 28px Arial';
+      ctx.fillStyle = confirmPressed ? '#5CD49E' : '#4AB888';  // HSL(156°) mint green
+      ctx.shadowColor = '#5CD49E';
+      ctx.shadowBlur = confirmPressed ? 15 * flashIntensity : 0;
+      ctx.font = '700 26px Poppins, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('✓', confirmCenterX, confirmCenterY);
+      ctx.shadowBlur = 0;
 
-      // Next arrow (›) in bottom 2/3 - mirror the top icon position
+      // Next arrow (›) in bottom 2/3 - Eye Tea Green teal
       const nextCenterX = x + width / 2 - 4;
       const nextCenterY = height - actionHeight / 2 - 2;  // Mirror from bottom
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 56px Arial';
+      ctx.fillStyle = nextPressed ? '#84CFC5' : '#ffffff';
+      ctx.shadowColor = '#84CFC5';
+      ctx.shadowBlur = nextPressed ? 15 * flashIntensity : 0;
+      ctx.font = '700 52px Poppins, sans-serif';
       ctx.fillText('›', nextCenterX, nextCenterY);
+      ctx.shadowBlur = 0;
     }
   }
 
   /**
    * Draw SSS variant gradient slider - colored gemstone spectrum
-   * Centered layout with proportional knob
+   * Clean minimal design with glass-like knob
    */
   _drawSSSVariants(ctx, variants, currentIdx, y, height, canvasWidth, centerX, centerWidth) {
     // Slider centered vertically, using most of horizontal space
     const sliderPadding = 8;
     const sliderX = centerX + sliderPadding;
     const sliderW = centerWidth - sliderPadding * 2;
-    const sliderH = 14;  // Slim track
+    const sliderH = 12;  // Clean thin track
     const sliderY = y + height * 0.5;  // Center vertically
     const knobRadius = 18;  // Proportional knob
 
@@ -1007,7 +1210,7 @@ export class HoloPhone {
       gradient.addColorStop(stop, color);
     });
 
-    // Draw gradient track with rounded ends
+    // Draw gradient track with rounded ends - no glow for cleaner look
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.roundRect(sliderX, sliderY - sliderH / 2, sliderW, sliderH, sliderH / 2);
@@ -1015,7 +1218,7 @@ export class HoloPhone {
 
     // Track border - subtle white outline
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
     // Calculate knob position based on current selection
@@ -1025,7 +1228,7 @@ export class HoloPhone {
     // Get current color
     const currentColor = HoloPhone.SSS_COLORS[variants[currentIdx]?.preset] || HoloPhone.SSS_COLORS['default'];
 
-    // Knob glow
+    // Subtle outer glow
     ctx.shadowColor = currentColor;
     ctx.shadowBlur = 15;
 
@@ -1038,20 +1241,21 @@ export class HoloPhone {
     // Reset shadow
     ctx.shadowBlur = 0;
 
-    // Knob 3D highlight
+    // Knob 3D highlight - glass-like effect
     const knobGradient = ctx.createRadialGradient(
-      knobX - knobRadius * 0.3, sliderY - knobRadius * 0.3, 0,
+      knobX - knobRadius * 0.35, sliderY - knobRadius * 0.35, 0,
       knobX, sliderY, knobRadius
     );
-    knobGradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-    knobGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
-    knobGradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+    knobGradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+    knobGradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.25)');
+    knobGradient.addColorStop(0.7, 'rgba(255, 255, 255, 0.05)');
+    knobGradient.addColorStop(1, 'rgba(0, 0, 0, 0.15)');
     ctx.fillStyle = knobGradient;
     ctx.beginPath();
     ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Knob border
+    // Knob border - clean white
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1070,16 +1274,16 @@ export class HoloPhone {
   }
 
   /**
-   * Draw text-based variant pills - compact layout
+   * Draw text-based variant pills - compact layout with glow effects
    * Positioned at 38% height to stay clear of arrows
    */
   _drawTextVariants(ctx, variants, currentIdx, y, height, canvasWidth, centerX, centerWidth) {
-    const pillHeight = 38;  // Smaller pills
-    const pillPadding = 18;
-    const spacing = 10;
+    const pillHeight = 40;
+    const pillPadding = 20;
+    const spacing = 12;
 
     // Measure all pills
-    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+    ctx.font = '600 20px Poppins, sans-serif';
     const pillWidths = variants.map(v => ctx.measureText(v.label || v.name).width + pillPadding * 2);
     const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (variants.length - 1) * spacing;
     let startX = centerX + (centerWidth - totalWidth) / 2;
@@ -1092,29 +1296,49 @@ export class HoloPhone {
       const pillX = startX;
       const isActive = i === currentIdx;
 
-      // Pill background
-      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.6)' : 'rgba(64, 224, 208, 0.2)';
+      // Active pill glow - Supple Blue
+      if (isActive) {
+        ctx.shadowColor = 'rgba(50, 172, 226, 0.6)';
+        ctx.shadowBlur = 15;
+      }
+
+      // Pill background - subtle blue tint when active
+      if (isActive) {
+        ctx.fillStyle = 'rgba(50, 172, 226, 0.25)';
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      }
       ctx.beginPath();
       ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
       ctx.fill();
 
-      // Border
+      // Reset shadow before border
+      ctx.shadowBlur = 0;
+
+      // Border - white when active, subtle blue otherwise
       if (isActive) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.stroke();
       } else {
-        ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(50, 172, 226, 0.4)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       }
 
-      // Text
-      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)';
-      ctx.font = isActive ? 'bold 20px "Segoe UI", Arial, sans-serif' : '20px "Segoe UI", Arial, sans-serif';
+      // Text with glow for active
+      if (isActive) {
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+        ctx.shadowBlur = 6;
+      }
+      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
+      ctx.font = isActive ? '600 20px Poppins, sans-serif' : '400 20px Poppins, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(variant.label || variant.name, pillX + pillW / 2, pillY + pillHeight / 2);
+
+      // Reset shadow
+      ctx.shadowBlur = 0;
 
       // Hit region - just around the pill
       this._carouselHitRegions.push({
@@ -1133,18 +1357,19 @@ export class HoloPhone {
   /**
    * Draw moon phase row with variant pills and phase slider
    * Compact layout: pills at 30% height, slider at 65% height
+   * Enhanced with glow effects
    */
   _drawMoonPhaseRow(ctx, variants, currentIdx, phase, y, height, canvasWidth, centerX, centerWidth) {
-    const pillHeight = 40;  // Smaller pills
-    const pillPadding = 16;
-    const spacing = 10;
+    const pillHeight = 40;
+    const pillPadding = 18;
+    const spacing = 12;
     const phaseVariantActive = variants[currentIdx]?.name === 'phase';
 
     // Pills positioned at 30% of height
     const pillY = y + height * 0.30 - pillHeight / 2;
 
     // Measure all pills
-    ctx.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+    ctx.font = '600 20px Poppins, sans-serif';
     const pillWidths = variants.map(v => ctx.measureText(v.label || v.name).width + pillPadding * 2);
     const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (variants.length - 1) * spacing;
     let startX = centerX + (centerWidth - totalWidth) / 2;
@@ -1155,28 +1380,49 @@ export class HoloPhone {
       const pillX = startX;
       const isActive = i === currentIdx;
 
-      // Pill background
-      ctx.fillStyle = isActive ? 'rgba(64, 224, 208, 0.6)' : 'rgba(64, 224, 208, 0.2)';
+      // Active pill glow - Supple Blue
+      if (isActive) {
+        ctx.shadowColor = 'rgba(50, 172, 226, 0.6)';
+        ctx.shadowBlur = 15;
+      }
+
+      // Pill background - subtle blue tint when active
+      if (isActive) {
+        ctx.fillStyle = 'rgba(50, 172, 226, 0.25)';
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      }
       ctx.beginPath();
       ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
       ctx.fill();
 
+      // Reset shadow before border
+      ctx.shadowBlur = 0;
+
+      // Border - white when active, subtle blue otherwise
       if (isActive) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.stroke();
       } else {
-        ctx.strokeStyle = 'rgba(64, 224, 208, 0.5)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(50, 172, 226, 0.4)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       }
 
-      // Text
-      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.85)';
-      ctx.font = isActive ? 'bold 20px "Segoe UI", Arial, sans-serif' : '20px "Segoe UI", Arial, sans-serif';
+      // Text with glow for active
+      if (isActive) {
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+        ctx.shadowBlur = 6;
+      }
+      ctx.fillStyle = isActive ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
+      ctx.font = isActive ? '600 20px Poppins, sans-serif' : '400 20px Poppins, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(label, pillX + pillW / 2, pillY + pillHeight / 2);
+
+      // Reset shadow
+      ctx.shadowBlur = 0;
 
       // Hit region for pills
       this._carouselHitRegions.push({
@@ -1197,44 +1443,44 @@ export class HoloPhone {
       const sliderX = centerX + sliderPadding;
       const sliderW = centerWidth - sliderPadding * 2;
       const sliderY = y + height * 0.65;  // Position at 65% height
-      const sliderH = 12;  // Slimmer track
-      const knobRadius = 20;  // Smaller knob
+      const sliderH = 12;  // Clean track height
+      const knobRadius = 18;  // Smaller, cleaner knob
 
-      // Slider track
-      ctx.fillStyle = 'rgba(64, 224, 208, 0.3)';
+      // Slider track background - subtle
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
       ctx.beginPath();
       ctx.roundRect(sliderX, sliderY - sliderH / 2, sliderW, sliderH, sliderH / 2);
       ctx.fill();
 
       // Track border
-      ctx.strokeStyle = 'rgba(64, 224, 208, 0.6)';
+      ctx.strokeStyle = 'rgba(50, 172, 226, 0.3)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Slider fill
-      const fillW = phase * sliderW;
-      ctx.fillStyle = 'rgba(64, 224, 208, 0.8)';
+      // Slider fill - Supple Blue gradient
+      const fillW = Math.max(sliderH, phase * sliderW);
+      ctx.fillStyle = 'rgba(50, 172, 226, 0.6)';
       ctx.beginPath();
       ctx.roundRect(sliderX, sliderY - sliderH / 2, fillW, sliderH, sliderH / 2);
       ctx.fill();
 
-      // Knob
-      const knobX = sliderX + fillW;
-      ctx.fillStyle = '#40e0d0';
+      // Knob - clean white with subtle Supple Blue glow
+      const knobX = sliderX + phase * sliderW;
+      ctx.shadowColor = 'rgba(50, 172, 226, 0.5)';
+      ctx.shadowBlur = 12;
+
+      ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.arc(knobX, sliderY, knobRadius, 0, Math.PI * 2);
       ctx.fill();
 
+      // Reset shadow
+      ctx.shadowBlur = 0;
+
       // Knob border
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = 'rgba(50, 172, 226, 0.8)';
       ctx.lineWidth = 2;
       ctx.stroke();
-
-      // Knob highlight
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.beginPath();
-      ctx.arc(knobX - 3, sliderY - 3, knobRadius * 0.35, 0, Math.PI * 2);
-      ctx.fill();
 
       // Slider hit region
       this._carouselHitRegions.push({
@@ -1704,10 +1950,9 @@ uniform float time;
       this._screenShader.uniforms.time.value += deltaTime;
     }
 
-    // Only re-render screen for animated states
-    if (this._screenState !== 'idle' || this._animationFrame % 10 === 0) {
-      this._renderScreen();
-    }
+    // Re-render screen every frame for smooth animations
+    // Idle state has pulsing logo, other states have various animations
+    this._renderScreen();
   }
 
   /**

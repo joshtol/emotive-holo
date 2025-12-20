@@ -4,13 +4,16 @@
  * Shows once on first visit, stored in localStorage
  */
 
+import * as THREE from 'three';
+
 const TUTORIAL_STORAGE_KEY = 'emo-tutorial-complete';
 
 export class TutorialController {
-  constructor({ mascot, carousel, holoPhone, onComplete }) {
+  constructor({ mascot, carousel, holoPhone, emitterBase, onComplete }) {
     this.mascot = mascot;
     this.carousel = carousel;
     this.holoPhone = holoPhone;
+    this.emitterBase = emitterBase;
     this.onComplete = onComplete;
 
     this.isRunning = false;
@@ -85,13 +88,15 @@ export class TutorialController {
     // Save original camera state
     this._saveCameraState();
 
-    // Get mascot center position for touch animations
+    // Get mascot center position for touch animations (actual 3D position)
     const mascotCenter = this._getMascotCenter();
 
     try {
-      // Step 1: Show "Tap Emo" hint with tap ripple
-      await this._showHint('Tap Emo', 'top');
-      await this._delay(800);
+      // Step 1: Show "Tap Emo to explore" on the holophone screen
+      if (this.holoPhone) {
+        this.holoPhone.setText('Tap Emo to explore');
+      }
+      await this._delay(1200);
 
       // Show tap ripple on mascot
       await this._showTapRipple(mascotCenter.x, mascotCenter.y);
@@ -106,25 +111,11 @@ export class TutorialController {
       this.carousel.show();
       await this._delay(1000);
 
-      // Hide hint during navigation
-      await this._hideHint();
-
-      // Highlight and press next arrow -> heart
-      await this._highlightButton('next-geometry', 400);
-      this.carousel.navigate(1);
-      await this._delay(1000);
-
-      // Highlight and press next arrow -> crystal
-      await this._highlightButton('next-geometry', 400);
-      this.carousel.navigate(1);
-      await this._delay(1000);
-
       // Save original camera distance for restore
       const controls = this.mascot?.core3D?.renderer?.controls;
       const originalDistance = controls?.object?.position?.length() || 2.5;
 
-      // Step 4: Demo zoom while still in carousel (on crystal)
-      // Show "Pinch to zoom" and demo pinch gesture
+      // Step 3: Demo zoom first (on rough geometry)
       await this._showHint('Pinch to zoom', 'top');
       await this._delay(300);
 
@@ -138,7 +129,7 @@ export class TutorialController {
       await this._animateZoom(originalDistance, 600); // Zoom back to original
       await this._delay(500);
 
-      // Step 5: Demo rotation while still in carousel
+      // Step 4: Demo rotation
       await this._showHint('Drag to rotate', 'top');
       await this._delay(300);
 
@@ -147,14 +138,31 @@ export class TutorialController {
       await this._animateRotation(360, 1500); // Full 360
       await this._delay(500);
 
-      // Step 6: Confirm selection (closes carousel with gesture)
+      // Hide hint before navigating
       await this._hideHint();
       await this._delay(300);
-      await this._highlightButton('confirm', 400);
+
+      // Step 5: Navigate through geometries -> heart
+      await this._tapCarouselButton('next-geometry');
+      this.carousel.navigate(1);
+      await this._delay(1000);
+
+      // Navigate -> crystal
+      await this._tapCarouselButton('next-geometry');
+      this.carousel.navigate(1);
+      await this._delay(1000);
+
+      // Step 6: Confirm selection (closes carousel with gesture)
+      await this._tapCarouselButton('confirm');
       this.carousel.confirmSelection();
       await this._delay(800);
 
-      // Step 7: Complete
+      // Step 7: Restore "Hold to speak" on holophone
+      if (this.holoPhone) {
+        this.holoPhone.setText('Hold to speak');
+      }
+
+      // Step 8: Complete
       this.markComplete();
 
       console.log('[Tutorial] Complete');
@@ -265,6 +273,125 @@ export class TutorialController {
     }
 
     await this._delay(duration);
+  }
+
+  /**
+   * Tap a carousel button with gold ripple animation and CSS flash
+   * Ripple fires first, then flash, then action can happen
+   * @param {string} buttonName - Button name ('next-geometry', 'prev-geometry', 'confirm', 'cancel')
+   */
+  async _tapCarouselButton(buttonName) {
+    if (this._aborted) throw new Error('Aborted');
+
+    // Get the screen position of the button
+    const buttonPos = this._getCarouselButtonPosition(buttonName);
+    if (!buttonPos) {
+      // Debug: Log why button position failed
+      console.warn('[Tutorial] Could not get button position for', buttonName, {
+        hasHoloPhone: !!this.holoPhone,
+        hasEmitterBase: !!this.emitterBase,
+        hasEmitterCamera: !!this.emitterBase?.emitterCamera,
+        hasMesh: !!this.holoPhone?.mesh,
+        hasRenderer: !!this.holoPhone?.renderer
+      });
+      // Fallback to just triggering the flash
+      if (this.holoPhone?.flashButton) {
+        this.holoPhone.flashButton(buttonName, 200);
+      }
+      await this._delay(150);
+      return;
+    }
+
+    // Show gold ripple at button position FIRST (fire and forget - animation continues)
+    this._showButtonTapRipple(buttonPos.x, buttonPos.y);
+
+    // Wait for ripple to become visible before flash/action
+    await this._delay(100);
+
+    // Now trigger the CSS flash animation on the button
+    if (this.holoPhone?.flashButton) {
+      this.holoPhone.flashButton(buttonName, 200);
+    }
+
+    // Small delay so flash is visible before action
+    await this._delay(50);
+  }
+
+  /**
+   * Get screen position of a carousel button icon center
+   * Maps exact canvas icon coordinates to screen space
+   * @param {string} buttonName - Button name
+   * @returns {Object|null} - { x, y } screen coordinates or null
+   */
+  _getCarouselButtonPosition(buttonName) {
+    if (!this.holoPhone || !this.emitterBase?.emitterCamera) return null;
+
+    const emitterCamera = this.emitterBase.emitterCamera;
+    const bounds = this.holoPhone.getScreenBounds(emitterCamera);
+    if (!bounds) return null;
+
+    // Exact icon center positions from _drawSplitBracket in holo-phone.js:
+    // Canvas size: 512 x 228
+    // bracketWidth = 80, bracketInset = 4, actionHeight = h/3 = 76
+    // Left icons at x = bracketInset + bracketWidth/2 + 4 = 48
+    // Right icons at x = canvasWidth - bracketInset - bracketWidth/2 + (-4) = 464
+    // Top icons at y = actionHeight/2 + 2 = 40
+    // Bottom icons at y = height - actionHeight/2 - 2 = 188
+    const canvasWidth = 512;
+    const canvasHeight = 228;
+
+    let canvasX, canvasY;
+    switch (buttonName) {
+      case 'cancel':
+        canvasX = 48;
+        canvasY = 40;
+        break;
+      case 'prev-geometry':
+        canvasX = 48;
+        canvasY = 188;
+        break;
+      case 'confirm':
+        canvasX = 464;
+        canvasY = 40;
+        break;
+      case 'next-geometry':
+        canvasX = 464;
+        canvasY = 188;
+        break;
+      default:
+        return null;
+    }
+
+    // Convert canvas coordinates (0-512, 0-228) to screen bounds
+    const screenX = bounds.left + (canvasX / canvasWidth) * bounds.width;
+    const screenY = bounds.top + (canvasY / canvasHeight) * bounds.height;
+
+    return { x: screenX, y: screenY };
+  }
+
+  /**
+   * Show a smaller gold ripple for button taps (no brackets, just ripple)
+   * @param {number} x - X position
+   * @param {number} y - Y position
+   */
+  async _showButtonTapRipple(x, y) {
+    if (!this._touchContainer || this._aborted) return;
+
+    // Create just the ripple element (smaller, gold colored)
+    const ripple = document.createElement('div');
+    ripple.className = 'tutorial-button-ripple';
+    ripple.style.left = `${x}px`;
+    ripple.style.top = `${y}px`;
+
+    this._touchContainer.appendChild(ripple);
+
+    // Trigger animation
+    await this._delay(10);
+    ripple.classList.add('active');
+
+    // Wait for animation and cleanup
+    await this._delay(400);
+    ripple.remove();
   }
 
   /**
@@ -401,10 +528,34 @@ export class TutorialController {
   }
 
   /**
-   * Get the center position of the mascot on screen
+   * Get the center position of the mascot on screen (actual 3D projection)
    */
   _getMascotCenter() {
-    // Use layout center from CSS custom property, fallback to 67% (rule of thirds)
+    // Try to get the actual mascot 3D position projected to screen
+    const core3D = this.mascot?.core3D;
+    if (core3D?.renderer?.camera && core3D?.mesh) {
+      const camera = core3D.renderer.camera;
+      const mesh = core3D.mesh;
+      const renderer = core3D.renderer.renderer;
+
+      // Get the center of the mascot mesh in world space
+      const box = new THREE.Box3().setFromObject(mesh);
+      const center = box.getCenter(new THREE.Vector3());
+
+      // Project to screen coordinates
+      const projected = center.clone().project(camera);
+
+      // Get renderer bounds
+      const rect = renderer.domElement.getBoundingClientRect();
+
+      // Convert from NDC (-1 to 1) to screen pixels
+      const screenX = (projected.x + 1) / 2 * rect.width + rect.left;
+      const screenY = (-projected.y + 1) / 2 * rect.height + rect.top;
+
+      return { x: screenX, y: screenY };
+    }
+
+    // Fallback: Use layout center from CSS custom property
     const layoutCenterX = getComputedStyle(document.documentElement)
       .getPropertyValue('--layout-center-x')?.trim() || '67%';
 

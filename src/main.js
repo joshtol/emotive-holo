@@ -337,6 +337,7 @@ class EmoAssistant {
       mascot: this.mascot,
       carousel: this.carousel,
       holoPhone: this.holoPhone3D,
+      emitterBase: this.emitterBase,
       onComplete: () => {
         console.log('Tutorial complete, resuming normal operation');
         this.setState('idle');
@@ -999,6 +1000,11 @@ class EmoAssistant {
     // Clear status on idle
     if (newState === 'idle') {
       this.setStatus('');
+
+      // Reset holophone progress when returning to idle
+      if (this.holoPhone3D) {
+        this.holoPhone3D.setProgress(0);
+      }
     }
 
   }
@@ -1280,6 +1286,8 @@ class EmoAssistant {
     const hitRegion = this.holoPhone3D.getSpeakingHitRegion(canvasCoords.x, canvasCoords.y);
     if (hitRegion && hitRegion.name === 'cancel') {
       console.log('Speaking cancel button tapped');
+      // Flash the cancel button before canceling
+      this.holoPhone3D.flashButton('cancel', 200);
       this.cancelCurrentOperation();
     }
   }
@@ -1333,7 +1341,20 @@ class EmoAssistant {
         return;
       }
 
-      // Handle other hits
+      // Flash button feedback for nav/action buttons
+      if (['cancel', 'confirm', 'prev-geometry', 'next-geometry'].includes(hitRegion.name)) {
+        this.holoPhone3D.flashButton(hitRegion.name);
+      }
+
+      // For cancel/confirm, delay the action so the flash is visible before carousel closes
+      if (hitRegion.name === 'cancel' || hitRegion.name === 'confirm') {
+        setTimeout(() => {
+          this.carousel.handlePhoneTouch(hitRegion.name, hitRegion.extra);
+        }, 150);
+        return;
+      }
+
+      // Handle other hits immediately
       this.carousel.handlePhoneTouch(hitRegion.name, hitRegion.extra);
     }
   }
