@@ -718,8 +718,28 @@ export class EmitterBase {
           // Add to scene
           this.scene.add(this.mesh);
 
+          // Compute the actual world-space bounds AFTER scaling
+          // This is critical for proper viewport normalization
+          this.mesh.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(this.mesh);
+          this._worldBounds = {
+            width: box.max.x - box.min.x,
+            height: box.max.y - box.min.y,
+            depth: box.max.z - box.min.z,
+            center: new THREE.Vector3(),
+            min: box.min.clone(),
+            max: box.max.clone()
+          };
+          box.getCenter(this._worldBounds.center);
+          console.log('Emitter world bounds:', {
+            width: this._worldBounds.width.toFixed(3),
+            height: this._worldBounds.height.toFixed(3),
+            depth: this._worldBounds.depth.toFixed(3),
+            center: this._worldBounds.center.toArray().map(v => v.toFixed(3))
+          });
+
           // Initialize the emitter camera at a reasonable default distance
-          // This will be overridden by setCameraDistance() from layout-scaler
+          // This will be overridden by setNormalizedCameraDistance() from main.js
           // The emitter scene is small, so camera needs to be relatively close
           this._baseCameraZ = 3.0;  // Default - will be set by layoutScaler
           this._initialMainCameraZ = this._baseCameraZ;
@@ -843,31 +863,119 @@ export class EmitterBase {
   }
 
   /**
+   * Get the actual world-space height of the emitter (computed from mesh bounds)
+   * This is the TRUE height after model loading and scaling.
+   * @returns {number} World-space height in units
+   */
+  getWorldHeight() {
+    return this._worldBounds?.height || 0.6;  // Fallback if bounds not computed yet
+  }
+
+  /**
+   * Compute the combined bounds of ALL visible objects in the emitter scene.
+   * This includes the emitter AND any other objects added (like the phone).
+   * Call this after all objects are loaded for accurate framing.
+   * @returns {Object} Bounds object with width, height, depth, min, max, center
+   */
+  computeSceneBounds() {
+    const box = new THREE.Box3();
+    let first = true;
+
+    this.scene.traverse((obj) => {
+      if (obj.isMesh && obj.visible) {
+        obj.updateMatrixWorld(true);
+        const meshBox = new THREE.Box3().setFromObject(obj);
+        if (first) {
+          box.copy(meshBox);
+          first = false;
+        } else {
+          box.union(meshBox);
+        }
+      }
+    });
+
+    if (first) {
+      // No meshes found, return default
+      return this._worldBounds || { height: 0.6 };
+    }
+
+    const bounds = {
+      width: box.max.x - box.min.x,
+      height: box.max.y - box.min.y,
+      depth: box.max.z - box.min.z,
+      min: box.min.clone(),
+      max: box.max.clone(),
+      center: new THREE.Vector3()
+    };
+    box.getCenter(bounds.center);
+
+    console.log('Scene combined bounds:', {
+      width: bounds.width.toFixed(3),
+      height: bounds.height.toFixed(3),
+      depth: bounds.depth.toFixed(3),
+      minY: bounds.min.y.toFixed(3),
+      maxY: bounds.max.y.toFixed(3)
+    });
+
+    return bounds;
+  }
+
+  /**
    * Set camera distance normalized to viewport size
    * This ensures the emitter appears the EXACT same size relative to the viewport
    * on ALL devices regardless of screen size, resolution, or pixel density.
    *
-   * @param {number} targetHeightRatio - How much of viewport height the emitter should fill (0-1)
-   *                                     e.g., 0.35 means emitter fills 35% of viewport height
-   * @param {number} emitterWorldHeight - The world-space height of the emitter (default 0.6 units)
+   * The key insight: we use the ACTUAL scene bounding box height (computed after loading)
+   * rather than a hardcoded guess. This makes the formula truly accurate.
+   *
+   * @param {number} targetHeightRatio - How much of viewport height the scene should fill (0-1)
+   *                                     e.g., 0.52 means scene fills 52% of viewport height
+   * @param {number} [sceneHeight] - Optional explicit scene height. If not provided, uses emitter bounds.
    */
-  setNormalizedCameraDistance(targetHeightRatio, emitterWorldHeight = 0.6) {
+  setNormalizedCameraDistance(targetHeightRatio, sceneHeight = null) {
     if (!this.emitterCamera) return;
 
-    // Calculate the camera distance needed for the emitter to fill targetHeightRatio of the viewport
-    // Using the formula: distance = (objectHeight / 2) / tan(fov / 2) / targetHeightRatio
+    // Use provided scene height, or fall back to emitter-only height
+    // Passing the full scene height (emitter + phone) ensures everything fits
+    const worldHeight = sceneHeight || this.getWorldHeight();
+
+    // Calculate the camera distance needed for the scene to fill targetHeightRatio of the viewport
+    // Formula derivation:
+    //   visible_height = 2 * distance * tan(fov/2)
+    //   We want: scene_height / visible_height = targetHeightRatio
+    //   So: scene_height = visible_height * targetHeightRatio
+    //       scene_height = 2 * distance * tan(fov/2) * targetHeightRatio
+    //       distance = scene_height / (2 * tan(fov/2) * targetHeightRatio)
+    //       distance = (scene_height / 2) / tan(fov/2) / targetHeightRatio
     const fovRadians = THREE.MathUtils.degToRad(this.emitterCamera.fov);
     const halfFovTan = Math.tan(fovRadians / 2);
 
-    // Distance needed for emitter to fill exactly targetHeightRatio of viewport height
-    const distance = (emitterWorldHeight / 2) / halfFovTan / targetHeightRatio;
+    // Distance needed for scene to fill exactly targetHeightRatio of viewport height
+    const distance = (worldHeight / 2) / halfFovTan / targetHeightRatio;
 
     this._baseCameraZ = distance;
     this.emitterCamera.position.z = distance;
-    this.emitterCamera.lookAt(0, 0, 0);
+    // Store the world height used for this calculation (for resize recalculations)
+    this._normalizedWorldHeight = worldHeight;
+    // Note: We don't call lookAt here anymore - the caller sets camera.position.y
+    // and the render() method handles lookAt based on the full camera position
 
     console.log('Normalized camera distance:', distance.toFixed(3),
-      'for', (targetHeightRatio * 100).toFixed(0) + '% viewport coverage');
+      'for', (targetHeightRatio * 100).toFixed(0) + '% viewport coverage',
+      '(scene height:', worldHeight.toFixed(3), 'units)');
+  }
+
+  /**
+   * Set what the camera should look at (target point)
+   * @param {number} x
+   * @param {number} y
+   * @param {number} z
+   */
+  setCameraLookAt(x, y, z) {
+    if (this.emitterCamera) {
+      this._lookAtTarget = new THREE.Vector3(x, y, z);
+      this.emitterCamera.lookAt(this._lookAtTarget);
+    }
   }
 
   /**

@@ -211,22 +211,32 @@ class EmoAssistant {
       // This allows shadows to scale proportionately to the actual rendered emitter
       layoutScaler.setEmitter(this.emitterBase);
 
+      // NOW both emitter AND phone are loaded - compute combined scene bounds
+      // This is critical for accurate viewport normalization
+      const sceneBounds = this.emitterBase.computeSceneBounds();
+      console.log('Full scene height for normalization:', sceneBounds.height.toFixed(3));
+
       // Set emitter camera distance normalized to viewport size
       // This ensures IDENTICAL apparent size on ALL devices regardless of screen size
+      // We pass the full scene height to ensure everything (emitter + phone) fits
       console.log('Setting normalized emitter coverage:', layout3D.emitterViewportCoverage, 'isMobile:', layoutScaler.isMobile);
-      this.emitterBase.setNormalizedCameraDistance(layout3D.emitterViewportCoverage);
+      this.emitterBase.setNormalizedCameraDistance(layout3D.emitterViewportCoverage, sceneBounds.height);
       console.log('Emitter camera position after normalization:', this.emitterBase.emitterCamera.position.toArray());
 
-      // Set initial camera Y offset based on device type
+      // Position camera to center on the scene bounds, not origin
+      // This ensures both emitter and phone are properly framed
       if (this.emitterBase.emitterCamera) {
-        if (layoutScaler.isMobile) {
-          // Camera Y controls vertical position: more negative = emitter higher, less negative = emitter lower
-          this.emitterBase.emitterCamera.position.y = -0.15;
-        } else {
-          // Shift emitter camera up on desktop to match main camera offset
-          this.emitterBase.emitterCamera.position.y -= 0.15;
+        // Camera Y should look at the vertical center of the scene
+        // The scene bounds center Y tells us where to aim
+        const sceneCenterY = sceneBounds.center.y;
+        console.log('Scene center Y:', sceneCenterY.toFixed(3));
 
-          // Apply same view offset as main camera so emitter renders at 67% position
+        // Set camera position and look-at target to center on the scene
+        this.emitterBase.emitterCamera.position.y = sceneCenterY;
+        this.emitterBase.setCameraLookAt(0, sceneCenterY, 0);
+
+        if (!layoutScaler.isMobile) {
+          // Desktop: apply view offset to position at 67%
           const width = window.innerWidth;
           const height = window.innerHeight;
           const offsetX = (0.5 - layoutScaler.desktop.centerX / 100) * width;
@@ -261,24 +271,26 @@ class EmoAssistant {
         const aspect = e.detail.viewportWidth / e.detail.viewportHeight;
         this.emitterBase.resize(aspect);
 
-        // Then recalculate normalized camera distance for consistent sizing
+        // Recompute scene bounds (in case of dynamic changes) and recalculate camera
+        const resizeBounds = this.emitterBase.computeSceneBounds();
         const newLayout3D = layoutScaler.get3DParams();
-        this.emitterBase.setNormalizedCameraDistance(newLayout3D.emitterViewportCoverage);
+        this.emitterBase.setNormalizedCameraDistance(newLayout3D.emitterViewportCoverage, resizeBounds.height);
 
         // Update view offset and camera Y position based on new layout
+        // Camera Y should center on the scene bounds
+        const resizeCenterY = resizeBounds.center.y;
+        this.emitterBase.emitterCamera.position.y = resizeCenterY;
+        this.emitterBase.setCameraLookAt(0, resizeCenterY, 0);
+
         if (e.detail.isMobile) {
           // Mobile: clear view offset (centered at 50%)
           this.emitterBase.clearViewOffset();
-          // Camera Y controls vertical position: more negative = emitter higher, less negative = emitter lower
-          this.emitterBase.emitterCamera.position.y = -0.15;
         } else {
           // Desktop: apply view offset to position at 67%
           const w = window.innerWidth;
           const h = window.innerHeight;
           const ox = (0.5 - layoutScaler.desktop.centerX / 100) * w;
           this.emitterBase.setViewOffset(w, h, ox, 0, w, h);
-          // Shift camera Y down so mascot appears higher
-          this.emitterBase.emitterCamera.position.y = -0.15;
         }
       }
     });
