@@ -797,7 +797,7 @@ export class EmitterBase {
 
   /**
    * Render the emitter with its own FIXED camera
-   * Called BEFORE the main scene render (emitter renders first, mascot on top)
+   * Called after the main scene render to overlay the emitter
    * The emitter is completely independent of the main camera - no zoom/rotation tracking
    */
   render() {
@@ -812,27 +812,28 @@ export class EmitterBase {
     // Update beam animation (assume ~60fps = 16ms per frame)
     this._updateBeam(0.016);
 
-    // Save original autoClear settings
+    // Render emitter scene on top of main scene
+    // Must disable ALL auto-clearing to preserve the main scene's render
     const autoClearWas = this.renderer.autoClear;
     const autoClearColorWas = this.renderer.autoClearColor;
     const autoClearDepthWas = this.renderer.autoClearDepth;
     const autoClearStencilWas = this.renderer.autoClearStencil;
 
-    // Disable auto-clear, we'll manually control what gets cleared
     this.renderer.autoClear = false;
+    this.renderer.autoClearColor = false;
+    this.renderer.autoClearDepth = false;
+    this.renderer.autoClearStencil = false;
 
-    // Manually clear color and depth buffers before emitter render
-    this.renderer.clear(true, true, false);
+    // Clear only the depth buffer so emitter renders on top correctly
+    this.renderer.clearDepth();
 
-    // Render emitter scene
     this.renderer.render(this.scene, this.emitterCamera);
 
-    // For mascot render: don't clear color (preserve emitter), but DO clear depth
-    // This allows proper depth testing for mascot without erasing the emitter
-    this.renderer.autoClear = true;
-    this.renderer.autoClearColor = false;  // Don't erase emitter
-    this.renderer.autoClearDepth = true;   // Fresh depth for mascot
-    this.renderer.autoClearStencil = false;
+    // Restore original settings
+    this.renderer.autoClear = autoClearWas;
+    this.renderer.autoClearColor = autoClearColorWas;
+    this.renderer.autoClearDepth = autoClearDepthWas;
+    this.renderer.autoClearStencil = autoClearStencilWas;
   }
 
   /**

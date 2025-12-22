@@ -253,20 +253,20 @@ class EmoAssistant {
         }
       }
 
-      // Hook into the mascot's render loop to render emitter BEFORE main scene
-      // This ensures mascot renders ON TOP of emitter when pinch-zoomed larger
+      // Hook into the mascot's render loop to render emitter AFTER main scene
+      // Emitter renders on top with depth cleared so it's always visible
       const originalRender = this.mascot.core3D.renderer.render.bind(this.mascot.core3D.renderer);
       this.mascot.core3D.renderer.render = (params) => {
-        // Render emitter FIRST (it will be in the background)
-        if (this.emitterBase) {
-          this.emitterBase.render();
-        }
-        // Update and render 3D phone (between emitter and mascot)
+        // Render mascot scene first
+        originalRender(params);
+        // Update 3D phone animations
         if (this.holoPhone3D) {
           this.holoPhone3D.update(0.016);
         }
-        // Render mascot scene LAST (appears on top when zoomed forward)
-        originalRender(params);
+        // Then render emitter on top with cleared depth
+        if (this.emitterBase) {
+          this.emitterBase.render();
+        }
       };
     }
 
@@ -1523,23 +1523,23 @@ class EmoAssistant {
     }
 
     // Get emitter base top Y (in screen pixels) - project top of emitter geometry
+    // Use computeSceneBounds() to exclude beam effects (they extend way above the emitter)
     let emitterTopY = null;
-    if (this.emitterBase?.mesh && this.emitterBase?.emitterCamera && this.emitterBase?.renderer) {
+    if (this.emitterBase?.emitterCamera && this.emitterBase?.renderer && this.emitterBase?.computeSceneBounds) {
       const emitterCamera = this.emitterBase.emitterCamera;
-      const emitterMesh = this.emitterBase.mesh;
       const renderer = this.emitterBase.renderer;
 
       // Update camera matrices
       emitterCamera.updateMatrixWorld();
       emitterCamera.updateProjectionMatrix();
 
-      // Get bounding box of emitter mesh
-      const box = new THREE.Box3().setFromObject(emitterMesh);
+      // Get bounding box EXCLUDING beam effects
+      const bounds = this.emitterBase.computeSceneBounds();
       // Get top center point (max Y in world space)
       const topCenter = new THREE.Vector3(
-        (box.min.x + box.max.x) / 2,
-        box.max.y,
-        (box.min.z + box.max.z) / 2
+        bounds.center.x,
+        bounds.max.y,
+        bounds.center.z
       );
 
       // Project to screen coordinates using emitter camera
@@ -1556,6 +1556,17 @@ class EmoAssistant {
       const midpointY = (mascotBottomY + emitterTopY) / 2;
       // Convert to 'bottom' CSS value (from bottom of viewport)
       const bottomValue = window.innerHeight - midpointY;
+
+      // Debug: log positions once per second
+      if (!this._lastTitleDebug || Date.now() - this._lastTitleDebug > 1000) {
+        console.log('Title position - mascotBottomY:', mascotBottomY.toFixed(0),
+          'emitterTopY:', emitterTopY.toFixed(0),
+          'midpointY:', midpointY.toFixed(0),
+          'bottomValue:', bottomValue.toFixed(0),
+          'viewportH:', window.innerHeight);
+        this._lastTitleDebug = Date.now();
+      }
+
       titleEl.style.bottom = `${bottomValue}px`;
       titleEl.style.top = 'auto';
     }

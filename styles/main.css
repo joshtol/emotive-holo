@@ -263,7 +263,7 @@ body {
   position: fixed;
   left: var(--layout-center-x);
   /* Center horizontally AND vertically on the calculated position */
-  transform: translateX(-50%) translateY(50%);
+  transform: translateX(-50%) translateY(-50%);
   /* Fallback position if JS hasn't run yet - JS will override with precise value */
   bottom: 43%;
   z-index: 100;
