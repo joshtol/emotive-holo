@@ -82,6 +82,12 @@ class EmoAssistant {
   async init() {
     console.log('Initializing Emo Assistant...');
 
+    // Add loading class for blur effect - removed when scene fully loads
+    const holoContainer = document.getElementById('hologram-container');
+    if (holoContainer) {
+      holoContainer.classList.add('loading');
+    }
+
     // Initialize layout scaler for consistent proportions across resolutions
     layoutScaler.init();
     const layout3D = layoutScaler.get3DParams();
@@ -211,27 +217,29 @@ class EmoAssistant {
       // This allows shadows to scale proportionately to the actual rendered emitter
       layoutScaler.setEmitter(this.emitterBase);
 
-      // NOW both emitter AND phone are loaded - compute combined scene bounds
-      // This is critical for accurate viewport normalization
-      const sceneBounds = this.emitterBase.computeSceneBounds();
-      console.log('Full scene height for normalization:', sceneBounds.height.toFixed(3));
+      // Use HARDCODED scene height for camera normalization
+      // This is critical - dynamic measurement keeps breaking across devices
+      // The scene height (0.30) was calibrated to represent the emitter+phone vertical span
+      const sceneHeight = layout3D.emitterSceneHeight;
+      const targetCoverage = layout3D.emitterViewportCoverage;
+      console.log('Camera normalization - sceneHeight:', sceneHeight, 'targetCoverage:', targetCoverage);
 
       // Set emitter camera distance normalized to viewport size
       // This ensures IDENTICAL apparent size on ALL devices regardless of screen size
-      // We pass the full scene height to ensure everything (emitter + phone) fits
-      console.log('Setting normalized emitter coverage:', layout3D.emitterViewportCoverage, 'isMobile:', layoutScaler.isMobile);
-      this.emitterBase.setNormalizedCameraDistance(layout3D.emitterViewportCoverage, sceneBounds.height);
-      console.log('Emitter camera position after normalization:', this.emitterBase.emitterCamera.position.toArray());
+      this.emitterBase.setNormalizedCameraDistance(targetCoverage, sceneHeight);
+      console.log('Emitter camera Z after normalization:', this.emitterBase.emitterCamera.position.z.toFixed(3));
 
-      // Position camera to center on the scene bounds, not origin
-      // This ensures both emitter and phone are properly framed
+      // Position camera to look ABOVE the scene center
+      // This pushes the emitter+phone down to the bottom of the viewport
+      // Looking higher = scene appears lower on screen
       if (this.emitterBase.emitterCamera) {
-        // Camera Y should look at the vertical center of the scene
-        // The scene bounds center Y tells us where to aim
-        const sceneCenterY = sceneBounds.center.y;
-        console.log('Scene center Y:', sceneCenterY.toFixed(3));
+        // Offset above scene center to push emitter to bottom of viewport
+        // Higher value = emitter appears lower on screen
+        const lookAtOffsetY = 0.20;  // Look this much above the scene center
+        const sceneCenterY = layout3D.emitterY + sceneHeight / 2 + lookAtOffsetY;
+        console.log('Camera lookAt Y (with offset):', sceneCenterY.toFixed(3));
 
-        // Set camera position and look-at target to center on the scene
+        // Set camera position and look-at target
         this.emitterBase.emitterCamera.position.y = sceneCenterY;
         this.emitterBase.setCameraLookAt(0, sceneCenterY, 0);
 
@@ -271,16 +279,18 @@ class EmoAssistant {
         const aspect = e.detail.viewportWidth / e.detail.viewportHeight;
         this.emitterBase.resize(aspect);
 
-        // Recompute scene bounds (in case of dynamic changes) and recalculate camera
-        const resizeBounds = this.emitterBase.computeSceneBounds();
+        // Use HARDCODED scene height for camera normalization (same as init)
         const newLayout3D = layoutScaler.get3DParams();
-        this.emitterBase.setNormalizedCameraDistance(newLayout3D.emitterViewportCoverage, resizeBounds.height);
+        const sceneHeight = newLayout3D.emitterSceneHeight;
+        const targetCoverage = newLayout3D.emitterViewportCoverage;
+        this.emitterBase.setNormalizedCameraDistance(targetCoverage, sceneHeight);
 
-        // Update view offset and camera Y position based on new layout
-        // Camera Y should center on the scene bounds
-        const resizeCenterY = resizeBounds.center.y;
-        this.emitterBase.emitterCamera.position.y = resizeCenterY;
-        this.emitterBase.setCameraLookAt(0, resizeCenterY, 0);
+        // Update camera Y position with offset to push emitter to bottom of viewport
+        // Must match the lookAtOffsetY in init (0.20)
+        const lookAtOffsetY = 0.20;
+        const sceneCenterY = newLayout3D.emitterY + sceneHeight / 2 + lookAtOffsetY;
+        this.emitterBase.emitterCamera.position.y = sceneCenterY;
+        this.emitterBase.setCameraLookAt(0, sceneCenterY, 0);
 
         if (e.detail.isMobile) {
           // Mobile: clear view offset (centered at 50%)
@@ -311,6 +321,16 @@ class EmoAssistant {
           this._showPhoneBoundsDebug(bounds);
         }
       }
+
+      // Remove loading blur - scene is now fully loaded
+      // Small additional delay for smooth transition
+      setTimeout(() => {
+        const container = document.getElementById('hologram-container');
+        if (container) {
+          container.classList.remove('loading');
+          console.log('Scene loaded - blur removed');
+        }
+      }, 100);
     }, 100);
 
     // Set initial calm state

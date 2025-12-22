@@ -872,25 +872,45 @@ export class EmitterBase {
   }
 
   /**
-   * Compute the combined bounds of ALL visible objects in the emitter scene.
-   * This includes the emitter AND any other objects added (like the phone).
-   * Call this after all objects are loaded for accurate framing.
+   * Compute the combined bounds of the emitter and phone (solid objects).
+   * EXCLUDES beam effects, glows, and particles - these are visual FX that
+   * extend far above the emitter and would cause incorrect camera framing.
    * @returns {Object} Bounds object with width, height, depth, min, max, center
    */
   computeSceneBounds() {
     const box = new THREE.Box3();
     let first = true;
 
+    // Objects to EXCLUDE from bounds calculation (beam effects extend too high)
+    const excludedObjects = new Set([
+      this.beam,
+      this.beamCore,
+      this.apertureGlow,
+      this.outerGlow,
+      this.apertureRing,
+      this.outerRing,
+      this.beamParticles,
+      this.scanlines
+    ]);
+
     this.scene.traverse((obj) => {
-      if (obj.isMesh && obj.visible) {
-        obj.updateMatrixWorld(true);
-        const meshBox = new THREE.Box3().setFromObject(obj);
-        if (first) {
-          box.copy(meshBox);
-          first = false;
-        } else {
-          box.union(meshBox);
-        }
+      // Skip beam effects and non-mesh objects
+      if (!obj.isMesh || !obj.visible) return;
+      if (excludedObjects.has(obj)) return;
+      // Also skip anything inside the beamGroup
+      let parent = obj.parent;
+      while (parent) {
+        if (parent === this.beamGroup) return;
+        parent = parent.parent;
+      }
+
+      obj.updateMatrixWorld(true);
+      const meshBox = new THREE.Box3().setFromObject(obj);
+      if (first) {
+        box.copy(meshBox);
+        first = false;
+      } else {
+        box.union(meshBox);
       }
     });
 
@@ -909,7 +929,7 @@ export class EmitterBase {
     };
     box.getCenter(bounds.center);
 
-    console.log('Scene combined bounds:', {
+    console.log('Scene combined bounds (excluding beam FX):', {
       width: bounds.width.toFixed(3),
       height: bounds.height.toFixed(3),
       depth: bounds.depth.toFixed(3),

@@ -37,9 +37,11 @@ export class LayoutScaler {
       emitterY: -0.50,
       cameraDistance: 1.6,
       mascotYOffset: 0,  // No offset on desktop
-      // Emitter viewport coverage - what % of viewport height the emitter should fill
-      // This is DEVICE-INDEPENDENT: same value = same apparent size on ALL devices
-      emitterViewportCoverage: 0.52
+      // Emitter+phone scene height in world units (hardcoded for stability)
+      // This is the calibrated vertical span of the emitter+phone combo
+      emitterSceneHeight: 0.30,
+      // Target coverage: what % of viewport height the emitter+phone should fill
+      emitterViewportCoverage: 0.26
     };
 
     // Mobile values (centered, scaled down)
@@ -55,12 +57,15 @@ export class LayoutScaler {
       cancelOffsetX: 80,
       phoneFontSize: 0.75,
       emitterScale: 0.27,
-      emitterY: -0.55,
+      emitterY: -0.50,
       cameraDistance: 2.0,
       mascotYOffset: 0.15,  // Raise mascot on mobile
-      // Emitter viewport coverage - what % of viewport height the emitter should fill
-      // This is DEVICE-INDEPENDENT: same value = same apparent size on ALL devices
-      emitterViewportCoverage: 0.52
+      // Emitter+phone scene height in world units (hardcoded for stability)
+      // This is the calibrated vertical span of the emitter+phone combo
+      emitterSceneHeight: 0.30,
+      // Target coverage: what % of viewport height the emitter+phone should fill
+      // SAME as desktop - this is the key to device-independent sizing
+      emitterViewportCoverage: 0.26
     };
 
     // Shadow shapes defined as offsets from layout center and shadow bottom
@@ -183,6 +188,7 @@ export class LayoutScaler {
       emitterY: config.emitterY,
       cameraDistance: config.cameraDistance,
       mascotYOffset: config.mascotYOffset || 0,
+      emitterSceneHeight: config.emitterSceneHeight,
       emitterViewportCoverage: config.emitterViewportCoverage
     };
   }

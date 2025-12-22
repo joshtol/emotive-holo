@@ -95,7 +95,23 @@ body {
   background-position: 67% bottom;  /* Align with layout center (rule of thirds) */
   background-repeat: no-repeat;
   z-index: 0;
-  transition: filter 0.5s ease;
+  transition: filter 0.8s ease-out;
+}
+
+/* Loading state - heavy blur on background until scene fully loads */
+#hologram-container.loading #background-layer {
+  filter: blur(20px) brightness(0.7);
+}
+
+/* Loading state - hide emitter shadows until loaded */
+#hologram-container.loading #emitter-shadows-svg {
+  opacity: 0;
+  transition: opacity 0.8s ease-out;
+}
+
+#emitter-shadows-svg {
+  opacity: 1;
+  transition: opacity 0.8s ease-out;
 }
 
 /* Emitter shadow - CSS-based occlusion shadow */
