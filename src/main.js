@@ -6,6 +6,7 @@
 // Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
 const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
 
+import * as THREE from 'three';
 import { EmotiveMascot3D } from '@joshtol/emotive-engine/3d';
 import { VoiceInput } from './voice-input.js';
 import { ClaudeClient } from './claude-client.js';
@@ -303,6 +304,9 @@ class EmoAssistant {
           this.emitterBase.setViewOffset(w, h, ox, 0, w, h);
         }
       }
+
+      // Update carousel title position on resize (if visible)
+      this._updateCarouselTitlePosition();
     });
     // Initial shadow update - now with emitter bounds available
     layoutScaler.updateShadows();
@@ -354,10 +358,16 @@ class EmoAssistant {
         // Show floating holographic title (also needed for tutorial)
         if (this.elements.carouselTitle) {
           this.elements.carouselTitle.classList.remove('hidden');
+          // Position title exactly halfway between mascot bottom and emitter top
+          this._updateCarouselTitlePosition();
+          // Start continuous position updates (mascot animates during carousel)
+          this._startCarouselTitleUpdates();
         }
       } else if (carouselState === 'idle' && this.state === 'carousel') {
         this.setState('idle');
         this.resetScreen();
+        // Stop carousel title position updates
+        this._stopCarouselTitleUpdates();
         // Hide floating holographic title
         if (this.elements.carouselTitle) {
           this.elements.carouselTitle.classList.add('hidden');
@@ -1045,6 +1055,10 @@ class EmoAssistant {
     // Show floating holographic title
     if (this.elements.carouselTitle) {
       this.elements.carouselTitle.classList.remove('hidden');
+      // Position title exactly halfway between mascot bottom and emitter top
+      this._updateCarouselTitlePosition();
+      // Start continuous position updates (mascot animates during carousel)
+      this._startCarouselTitleUpdates();
     }
   }
 
@@ -1052,6 +1066,9 @@ class EmoAssistant {
     this.carousel.hide();
     this.setState('idle');
     this.resetScreen();
+
+    // Stop carousel title position updates
+    this._stopCarouselTitleUpdates();
 
     // Hide floating holographic title
     if (this.elements.carouselTitle) {
@@ -1465,6 +1482,89 @@ class EmoAssistant {
     }
     if (this.elements.carouselTitleVariant) {
       this.elements.carouselTitleVariant.textContent = variant;
+    }
+    // Also update position whenever title changes
+    this._updateCarouselTitlePosition();
+  }
+
+  /**
+   * Update carousel title position to be exactly halfway between
+   * the mascot's bottom and the emitter base's top.
+   * This ensures the title never overlaps with either element.
+   */
+  _updateCarouselTitlePosition() {
+    const titleEl = this.elements.carouselTitle;
+    if (!titleEl || titleEl.classList.contains('hidden')) return;
+
+    // Get mascot bottom Y (in screen pixels)
+    let mascotBottomY = null;
+    const core3D = this.mascot?.core3D;
+    if (core3D?.renderer?.camera && core3D?.mesh) {
+      const camera = core3D.renderer.camera;
+      const mesh = core3D.mesh;
+      const renderer = core3D.renderer.renderer;
+
+      // Get bounding box of mascot mesh
+      const box = new THREE.Box3().setFromObject(mesh);
+      // Get bottom center point (min Y)
+      const bottomCenter = new THREE.Vector3(
+        (box.min.x + box.max.x) / 2,
+        box.min.y,
+        (box.min.z + box.max.z) / 2
+      );
+
+      // Project to screen coordinates
+      const projected = bottomCenter.clone().project(camera);
+      const rect = renderer.domElement.getBoundingClientRect();
+
+      // Convert from NDC (-1 to 1) to screen pixels
+      // Note: projected.y is inverted (1 = top, -1 = bottom in NDC)
+      mascotBottomY = (-projected.y + 1) / 2 * rect.height + rect.top;
+    }
+
+    // Get emitter base top Y (in screen pixels)
+    let emitterTopY = null;
+    if (this.emitterBase) {
+      const config = layoutScaler.isMobile ? layoutScaler.mobile : layoutScaler.desktop;
+      const bounds = this.emitterBase.getScreenBounds(config.centerX);
+      if (bounds) {
+        // bounds.top is in viewport percentage (0-100, 0 = top)
+        emitterTopY = (bounds.top / 100) * window.innerHeight;
+      }
+    }
+
+    // Calculate midpoint and position title
+    if (mascotBottomY !== null && emitterTopY !== null) {
+      const midpointY = (mascotBottomY + emitterTopY) / 2;
+      // Convert to 'bottom' CSS value (from bottom of viewport)
+      const bottomValue = window.innerHeight - midpointY;
+      titleEl.style.bottom = `${bottomValue}px`;
+      titleEl.style.top = 'auto';
+    }
+  }
+
+  /**
+   * Start continuous carousel title position updates.
+   * Updates every frame while carousel is open to track mascot animations.
+   */
+  _startCarouselTitleUpdates() {
+    // Don't start if already running
+    if (this._carouselTitleUpdateId) return;
+
+    const update = () => {
+      this._updateCarouselTitlePosition();
+      this._carouselTitleUpdateId = requestAnimationFrame(update);
+    };
+    this._carouselTitleUpdateId = requestAnimationFrame(update);
+  }
+
+  /**
+   * Stop continuous carousel title position updates.
+   */
+  _stopCarouselTitleUpdates() {
+    if (this._carouselTitleUpdateId) {
+      cancelAnimationFrame(this._carouselTitleUpdateId);
+      this._carouselTitleUpdateId = null;
     }
   }
 

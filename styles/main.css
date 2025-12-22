@@ -258,11 +258,13 @@ body {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* Floating holographic title - positioned above emitter during carousel */
+/* Position is controlled by JavaScript: exactly halfway between mascot bottom and emitter top */
 #carousel-title {
   position: fixed;
   left: var(--layout-center-x);
-  transform: translateX(-50%);
-  /* Position above emitter */
+  /* Center horizontally AND vertically on the calculated position */
+  transform: translateX(-50%) translateY(50%);
+  /* Fallback position if JS hasn't run yet - JS will override with precise value */
   bottom: 43%;
   z-index: 100;
   text-align: center;
@@ -387,6 +389,7 @@ body {
 /* Mobile adjustments for floating title */
 @media (max-width: 768px), (orientation: portrait) {
   #carousel-title {
+    /* Fallback - JS will override with precise calculated position */
     bottom: 42%;
   }
 
