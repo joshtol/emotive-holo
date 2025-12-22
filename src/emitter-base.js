@@ -718,8 +718,10 @@ export class EmitterBase {
           // Add to scene
           this.scene.add(this.mesh);
 
-          // Initialize the emitter camera position based on main camera
-          this._baseCameraZ = this.camera.position.length();
+          // Initialize the emitter camera at a reasonable default distance
+          // This will be overridden by setCameraDistance() from layout-scaler
+          // The emitter scene is small, so camera needs to be relatively close
+          this._baseCameraZ = 3.0;  // Default - will be set by layoutScaler
           this._initialMainCameraZ = this._baseCameraZ;
           this.emitterCamera.position.set(0, 0, this._baseCameraZ);
           this.emitterCamera.lookAt(0, 0, 0);
@@ -821,6 +823,21 @@ export class EmitterBase {
     if (this.emitterCamera) {
       this.emitterCamera.aspect = aspect;
       this.emitterCamera.updateProjectionMatrix();
+    }
+  }
+
+  /**
+   * Set the emitter camera distance (Z position)
+   * Controls how large the emitter/phone appear on screen
+   * Smaller distance = closer camera = larger apparent size
+   * @param {number} distance - Camera Z distance
+   */
+  setCameraDistance(distance) {
+    if (this.emitterCamera) {
+      this._baseCameraZ = distance;
+      this.emitterCamera.position.z = distance;
+      this.emitterCamera.lookAt(0, 0, 0);
+      console.log('Emitter camera distance set to:', distance);
     }
   }
 

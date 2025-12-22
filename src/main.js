@@ -211,15 +211,27 @@ class EmoAssistant {
       // This allows shadows to scale proportionately to the actual rendered emitter
       layoutScaler.setEmitter(this.emitterBase);
 
-      // Also shift emitter camera up on desktop to match main camera offset
-      if (!layoutScaler.isMobile && this.emitterBase.emitterCamera) {
-        this.emitterBase.emitterCamera.position.y -= 0.15;
+      // Set emitter camera distance based on layout (mobile vs desktop)
+      // This normalizes the phone/emitter size across different devices
+      console.log('Setting emitter camera distance:', layout3D.emitterCameraDistance, 'isMobile:', layoutScaler.isMobile);
+      this.emitterBase.setCameraDistance(layout3D.emitterCameraDistance);
+      console.log('Emitter camera position after setCameraDistance:', this.emitterBase.emitterCamera.position.toArray());
 
-        // Apply same view offset as main camera so emitter renders at 67% position
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-        const offsetX = (0.5 - layoutScaler.desktop.centerX / 100) * width;
-        this.emitterBase.setViewOffset(width, height, offsetX, 0, width, height);
+      // Set initial camera Y offset based on device type
+      if (this.emitterBase.emitterCamera) {
+        if (layoutScaler.isMobile) {
+          // Camera Y controls vertical position: more negative = emitter higher, less negative = emitter lower
+          this.emitterBase.emitterCamera.position.y = -0.15;
+        } else {
+          // Shift emitter camera up on desktop to match main camera offset
+          this.emitterBase.emitterCamera.position.y -= 0.15;
+
+          // Apply same view offset as main camera so emitter renders at 67% position
+          const width = window.innerWidth;
+          const height = window.innerHeight;
+          const offsetX = (0.5 - layoutScaler.desktop.centerX / 100) * width;
+          this.emitterBase.setViewOffset(width, height, offsetX, 0, width, height);
+        }
       }
 
       // Hook into the mascot's render loop to render emitter after main scene
@@ -239,9 +251,31 @@ class EmoAssistant {
       };
     }
 
-    // Listen for layout scale changes to update shadows
-    window.addEventListener('layoutscale', () => {
+    // Listen for layout scale changes to update shadows and camera
+    window.addEventListener('layoutscale', (e) => {
       layoutScaler.updateShadows();
+
+      // Update emitter camera distance when layout changes (mobile <-> desktop)
+      if (this.emitterBase) {
+        const newLayout3D = layoutScaler.get3DParams();
+        this.emitterBase.setCameraDistance(newLayout3D.emitterCameraDistance);
+
+        // Update view offset and camera Y position based on new layout
+        if (e.detail.isMobile) {
+          // Mobile: clear view offset (centered at 50%)
+          this.emitterBase.clearViewOffset();
+          // Camera Y controls vertical position: more negative = emitter higher, less negative = emitter lower
+          this.emitterBase.emitterCamera.position.y = -0.15;
+        } else {
+          // Desktop: apply view offset to position at 67%
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          const ox = (0.5 - layoutScaler.desktop.centerX / 100) * w;
+          this.emitterBase.setViewOffset(w, h, ox, 0, w, h);
+          // Shift camera Y down so mascot appears higher
+          this.emitterBase.emitterCamera.position.y = -0.15;
+        }
+      }
     });
     // Initial shadow update - now with emitter bounds available
     layoutScaler.updateShadows();

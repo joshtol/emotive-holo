@@ -36,7 +36,10 @@ export class LayoutScaler {
       emitterScale: 0.27,
       emitterY: -0.50,
       cameraDistance: 1.6,
-      mascotYOffset: 0  // No offset on desktop
+      mascotYOffset: 0,  // No offset on desktop
+      // Emitter camera distance controls how big the phone/emitter appear
+      // Smaller = closer = larger apparent size
+      emitterCameraDistance: 1.3
     };
 
     // Mobile values (centered, scaled down)
@@ -52,9 +55,12 @@ export class LayoutScaler {
       cancelOffsetX: 80,
       phoneFontSize: 0.75,
       emitterScale: 0.27,
-      emitterY: -0.48,
+      emitterY: -0.55,
       cameraDistance: 2.0,
-      mascotYOffset: 0.15  // Raise mascot on mobile
+      mascotYOffset: 0.15,  // Raise mascot on mobile
+      // Emitter camera much closer on mobile = phone appears larger
+      // Smaller value = closer camera = bigger phone on screen
+      emitterCameraDistance: 1.4
     };
 
     // Shadow shapes defined as offsets from layout center and shadow bottom
@@ -176,7 +182,8 @@ export class LayoutScaler {
       emitterScale: config.emitterScale,
       emitterY: config.emitterY,
       cameraDistance: config.cameraDistance,
-      mascotYOffset: config.mascotYOffset || 0
+      mascotYOffset: config.mascotYOffset || 0,
+      emitterCameraDistance: config.emitterCameraDistance
     };
   }
 
