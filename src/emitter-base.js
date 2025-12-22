@@ -812,20 +812,26 @@ export class EmitterBase {
     // Update beam animation (assume ~60fps = 16ms per frame)
     this._updateBeam(0.016);
 
-    // Emitter renders FIRST - clear everything to start fresh
-    // After emitter renders, mascot will render on top and use depth testing
-    // to correctly appear in front when pinch-zoomed larger
-    this.renderer.autoClear = true;
-    this.renderer.autoClearColor = true;
-    this.renderer.autoClearDepth = true;
-    this.renderer.autoClearStencil = true;
+    // Save original autoClear settings
+    const autoClearWas = this.renderer.autoClear;
+    const autoClearColorWas = this.renderer.autoClearColor;
+    const autoClearDepthWas = this.renderer.autoClearDepth;
+    const autoClearStencilWas = this.renderer.autoClearStencil;
 
+    // Disable auto-clear, we'll manually control what gets cleared
+    this.renderer.autoClear = false;
+
+    // Manually clear color and depth buffers before emitter render
+    this.renderer.clear(true, true, false);
+
+    // Render emitter scene
     this.renderer.render(this.scene, this.emitterCamera);
 
-    // Disable auto-clear so mascot can render on top without clearing emitter
-    this.renderer.autoClear = false;
-    this.renderer.autoClearColor = false;
-    this.renderer.autoClearDepth = false;
+    // For mascot render: don't clear color (preserve emitter), but DO clear depth
+    // This allows proper depth testing for mascot without erasing the emitter
+    this.renderer.autoClear = true;
+    this.renderer.autoClearColor = false;  // Don't erase emitter
+    this.renderer.autoClearDepth = true;   // Fresh depth for mascot
     this.renderer.autoClearStencil = false;
   }
 
