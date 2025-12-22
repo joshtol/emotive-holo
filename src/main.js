@@ -253,20 +253,20 @@ class EmoAssistant {
         }
       }
 
-      // Hook into the mascot's render loop to render emitter after main scene
-      // We need to render the emitter AFTER the main scene renders
+      // Hook into the mascot's render loop to render emitter BEFORE main scene
+      // This ensures mascot renders ON TOP of emitter when pinch-zoomed larger
       const originalRender = this.mascot.core3D.renderer.render.bind(this.mascot.core3D.renderer);
       this.mascot.core3D.renderer.render = (params) => {
-        // Render main scene first
-        originalRender(params);
-        // Update and render 3D phone
-        if (this.holoPhone3D) {
-          this.holoPhone3D.update(0.016);
-        }
-        // Then render emitter on top with fixed camera
+        // Render emitter FIRST (it will be in the background)
         if (this.emitterBase) {
           this.emitterBase.render();
         }
+        // Update and render 3D phone (between emitter and mascot)
+        if (this.holoPhone3D) {
+          this.holoPhone3D.update(0.016);
+        }
+        // Render mascot scene LAST (appears on top when zoomed forward)
+        originalRender(params);
       };
     }
 
@@ -1496,7 +1496,7 @@ class EmoAssistant {
     const titleEl = this.elements.carouselTitle;
     if (!titleEl || titleEl.classList.contains('hidden')) return;
 
-    // Get mascot bottom Y (in screen pixels)
+    // Get mascot bottom Y (in screen pixels) - project bottom of mascot geometry
     let mascotBottomY = null;
     const core3D = this.mascot?.core3D;
     if (core3D?.renderer?.camera && core3D?.mesh) {
@@ -1506,14 +1506,14 @@ class EmoAssistant {
 
       // Get bounding box of mascot mesh
       const box = new THREE.Box3().setFromObject(mesh);
-      // Get bottom center point (min Y)
+      // Get bottom center point (min Y in world space)
       const bottomCenter = new THREE.Vector3(
         (box.min.x + box.max.x) / 2,
         box.min.y,
         (box.min.z + box.max.z) / 2
       );
 
-      // Project to screen coordinates
+      // Project to screen coordinates using mascot camera
       const projected = bottomCenter.clone().project(camera);
       const rect = renderer.domElement.getBoundingClientRect();
 
@@ -1522,15 +1522,33 @@ class EmoAssistant {
       mascotBottomY = (-projected.y + 1) / 2 * rect.height + rect.top;
     }
 
-    // Get emitter base top Y (in screen pixels)
+    // Get emitter base top Y (in screen pixels) - project top of emitter geometry
     let emitterTopY = null;
-    if (this.emitterBase) {
-      const config = layoutScaler.isMobile ? layoutScaler.mobile : layoutScaler.desktop;
-      const bounds = this.emitterBase.getScreenBounds(config.centerX);
-      if (bounds) {
-        // bounds.top is in viewport percentage (0-100, 0 = top)
-        emitterTopY = (bounds.top / 100) * window.innerHeight;
-      }
+    if (this.emitterBase?.mesh && this.emitterBase?.emitterCamera && this.emitterBase?.renderer) {
+      const emitterCamera = this.emitterBase.emitterCamera;
+      const emitterMesh = this.emitterBase.mesh;
+      const renderer = this.emitterBase.renderer;
+
+      // Update camera matrices
+      emitterCamera.updateMatrixWorld();
+      emitterCamera.updateProjectionMatrix();
+
+      // Get bounding box of emitter mesh
+      const box = new THREE.Box3().setFromObject(emitterMesh);
+      // Get top center point (max Y in world space)
+      const topCenter = new THREE.Vector3(
+        (box.min.x + box.max.x) / 2,
+        box.max.y,
+        (box.min.z + box.max.z) / 2
+      );
+
+      // Project to screen coordinates using emitter camera
+      const projected = topCenter.clone().project(emitterCamera);
+      const rect = renderer.domElement.getBoundingClientRect();
+
+      // Convert from NDC (-1 to 1) to screen pixels
+      // Note: projected.y is inverted (1 = top, -1 = bottom in NDC)
+      emitterTopY = (-projected.y + 1) / 2 * rect.height + rect.top;
     }
 
     // Calculate midpoint and position title

@@ -797,7 +797,7 @@ export class EmitterBase {
 
   /**
    * Render the emitter with its own FIXED camera
-   * Called after the main scene render to overlay the emitter
+   * Called BEFORE the main scene render (emitter renders first, mascot on top)
    * The emitter is completely independent of the main camera - no zoom/rotation tracking
    */
   render() {
@@ -812,28 +812,21 @@ export class EmitterBase {
     // Update beam animation (assume ~60fps = 16ms per frame)
     this._updateBeam(0.016);
 
-    // Render emitter scene on top of main scene
-    // Must disable ALL auto-clearing to preserve the main scene's render
-    const autoClearWas = this.renderer.autoClear;
-    const autoClearColorWas = this.renderer.autoClearColor;
-    const autoClearDepthWas = this.renderer.autoClearDepth;
-    const autoClearStencilWas = this.renderer.autoClearStencil;
+    // Emitter renders FIRST - clear everything to start fresh
+    // After emitter renders, mascot will render on top and use depth testing
+    // to correctly appear in front when pinch-zoomed larger
+    this.renderer.autoClear = true;
+    this.renderer.autoClearColor = true;
+    this.renderer.autoClearDepth = true;
+    this.renderer.autoClearStencil = true;
 
+    this.renderer.render(this.scene, this.emitterCamera);
+
+    // Disable auto-clear so mascot can render on top without clearing emitter
     this.renderer.autoClear = false;
     this.renderer.autoClearColor = false;
     this.renderer.autoClearDepth = false;
     this.renderer.autoClearStencil = false;
-
-    // Clear only the depth buffer so emitter renders on top correctly
-    this.renderer.clearDepth();
-
-    this.renderer.render(this.scene, this.emitterCamera);
-
-    // Restore original settings
-    this.renderer.autoClear = autoClearWas;
-    this.renderer.autoClearColor = autoClearColorWas;
-    this.renderer.autoClearDepth = autoClearDepthWas;
-    this.renderer.autoClearStencil = autoClearStencilWas;
   }
 
   /**
