@@ -37,9 +37,9 @@ export class LayoutScaler {
       emitterY: -0.50,
       cameraDistance: 1.6,
       mascotYOffset: 0,  // No offset on desktop
-      // Emitter camera distance controls how big the phone/emitter appear
-      // Smaller = closer = larger apparent size
-      emitterCameraDistance: 1.3
+      // Emitter viewport coverage - what % of viewport height the emitter should fill
+      // This is DEVICE-INDEPENDENT: same value = same apparent size on ALL devices
+      emitterViewportCoverage: 0.52
     };
 
     // Mobile values (centered, scaled down)
@@ -58,9 +58,9 @@ export class LayoutScaler {
       emitterY: -0.55,
       cameraDistance: 2.0,
       mascotYOffset: 0.15,  // Raise mascot on mobile
-      // Emitter camera much closer on mobile = phone appears larger
-      // Smaller value = closer camera = bigger phone on screen
-      emitterCameraDistance: 1.4
+      // Emitter viewport coverage - what % of viewport height the emitter should fill
+      // This is DEVICE-INDEPENDENT: same value = same apparent size on ALL devices
+      emitterViewportCoverage: 0.52
     };
 
     // Shadow shapes defined as offsets from layout center and shadow bottom
@@ -183,7 +183,7 @@ export class LayoutScaler {
       emitterY: config.emitterY,
       cameraDistance: config.cameraDistance,
       mascotYOffset: config.mascotYOffset || 0,
-      emitterCameraDistance: config.emitterCameraDistance
+      emitterViewportCoverage: config.emitterViewportCoverage
     };
   }
 
@@ -212,7 +212,6 @@ export class LayoutScaler {
    * Mobile shadows are larger because the emitter takes up more screen space.
    */
   updateShadows() {
-    const contact = document.getElementById('shadow-contact');
     const penumbra = document.getElementById('shadow-penumbra');
     const ambient = document.getElementById('shadow-ambient');
     const reflection = document.getElementById('table-reflection');
@@ -224,13 +223,11 @@ export class LayoutScaler {
     const bottomY = this.isMobile ? this.shadowBottomY.mobile : this.shadowBottomY.desktop;
 
     // Generate shadow points with position and scale
-    const contactPoints = this._generateShadowPoints(this.shadowShapes.contact, layoutCenterX, scale, bottomY);
     const penumbraPoints = this._generateShadowPoints(this.shadowShapes.penumbra, layoutCenterX, scale, bottomY);
     const ambientPoints = this._generateShadowPoints(this.shadowShapes.ambient, layoutCenterX, scale, bottomY);
 
     console.log('Shadow update - layoutCenterX:', layoutCenterX, 'scale:', scale, 'bottomY:', bottomY);
 
-    if (contact) contact.setAttribute('points', contactPoints);
     if (penumbra) penumbra.setAttribute('points', penumbraPoints);
     if (ambient) ambient.setAttribute('points', ambientPoints);
 

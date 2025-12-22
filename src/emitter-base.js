@@ -831,6 +831,7 @@ export class EmitterBase {
    * Controls how large the emitter/phone appear on screen
    * Smaller distance = closer camera = larger apparent size
    * @param {number} distance - Camera Z distance
+   * @deprecated Use setNormalizedCameraDistance() for device-independent sizing
    */
   setCameraDistance(distance) {
     if (this.emitterCamera) {
@@ -839,6 +840,34 @@ export class EmitterBase {
       this.emitterCamera.lookAt(0, 0, 0);
       console.log('Emitter camera distance set to:', distance);
     }
+  }
+
+  /**
+   * Set camera distance normalized to viewport size
+   * This ensures the emitter appears the EXACT same size relative to the viewport
+   * on ALL devices regardless of screen size, resolution, or pixel density.
+   *
+   * @param {number} targetHeightRatio - How much of viewport height the emitter should fill (0-1)
+   *                                     e.g., 0.35 means emitter fills 35% of viewport height
+   * @param {number} emitterWorldHeight - The world-space height of the emitter (default 0.6 units)
+   */
+  setNormalizedCameraDistance(targetHeightRatio, emitterWorldHeight = 0.6) {
+    if (!this.emitterCamera) return;
+
+    // Calculate the camera distance needed for the emitter to fill targetHeightRatio of the viewport
+    // Using the formula: distance = (objectHeight / 2) / tan(fov / 2) / targetHeightRatio
+    const fovRadians = THREE.MathUtils.degToRad(this.emitterCamera.fov);
+    const halfFovTan = Math.tan(fovRadians / 2);
+
+    // Distance needed for emitter to fill exactly targetHeightRatio of viewport height
+    const distance = (emitterWorldHeight / 2) / halfFovTan / targetHeightRatio;
+
+    this._baseCameraZ = distance;
+    this.emitterCamera.position.z = distance;
+    this.emitterCamera.lookAt(0, 0, 0);
+
+    console.log('Normalized camera distance:', distance.toFixed(3),
+      'for', (targetHeightRatio * 100).toFixed(0) + '% viewport coverage');
   }
 
   /**

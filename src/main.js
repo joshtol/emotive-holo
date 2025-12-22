@@ -211,11 +211,11 @@ class EmoAssistant {
       // This allows shadows to scale proportionately to the actual rendered emitter
       layoutScaler.setEmitter(this.emitterBase);
 
-      // Set emitter camera distance based on layout (mobile vs desktop)
-      // This normalizes the phone/emitter size across different devices
-      console.log('Setting emitter camera distance:', layout3D.emitterCameraDistance, 'isMobile:', layoutScaler.isMobile);
-      this.emitterBase.setCameraDistance(layout3D.emitterCameraDistance);
-      console.log('Emitter camera position after setCameraDistance:', this.emitterBase.emitterCamera.position.toArray());
+      // Set emitter camera distance normalized to viewport size
+      // This ensures IDENTICAL apparent size on ALL devices regardless of screen size
+      console.log('Setting normalized emitter coverage:', layout3D.emitterViewportCoverage, 'isMobile:', layoutScaler.isMobile);
+      this.emitterBase.setNormalizedCameraDistance(layout3D.emitterViewportCoverage);
+      console.log('Emitter camera position after normalization:', this.emitterBase.emitterCamera.position.toArray());
 
       // Set initial camera Y offset based on device type
       if (this.emitterBase.emitterCamera) {
@@ -255,10 +255,15 @@ class EmoAssistant {
     window.addEventListener('layoutscale', (e) => {
       layoutScaler.updateShadows();
 
-      // Update emitter camera distance when layout changes (mobile <-> desktop)
+      // Update emitter camera when layout changes (resize or mobile <-> desktop)
       if (this.emitterBase) {
+        // First update aspect ratio (must happen before normalized distance calculation)
+        const aspect = e.detail.viewportWidth / e.detail.viewportHeight;
+        this.emitterBase.resize(aspect);
+
+        // Then recalculate normalized camera distance for consistent sizing
         const newLayout3D = layoutScaler.get3DParams();
-        this.emitterBase.setCameraDistance(newLayout3D.emitterCameraDistance);
+        this.emitterBase.setNormalizedCameraDistance(newLayout3D.emitterViewportCoverage);
 
         // Update view offset and camera Y position based on new layout
         if (e.detail.isMobile) {
