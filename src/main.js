@@ -305,8 +305,6 @@ class EmoAssistant {
         }
       }
 
-      // Update carousel title position on resize (if visible)
-      this._updateCarouselTitlePosition();
     });
     // Initial shadow update - now with emitter bounds available
     layoutScaler.updateShadows();
@@ -358,16 +356,10 @@ class EmoAssistant {
         // Show floating holographic title (also needed for tutorial)
         if (this.elements.carouselTitle) {
           this.elements.carouselTitle.classList.remove('hidden');
-          // Position title exactly halfway between mascot bottom and emitter top
-          this._updateCarouselTitlePosition();
-          // Start continuous position updates (mascot animates during carousel)
-          this._startCarouselTitleUpdates();
         }
       } else if (carouselState === 'idle' && this.state === 'carousel') {
         this.setState('idle');
         this.resetScreen();
-        // Stop carousel title position updates
-        this._stopCarouselTitleUpdates();
         // Hide floating holographic title
         if (this.elements.carouselTitle) {
           this.elements.carouselTitle.classList.add('hidden');
@@ -1055,10 +1047,6 @@ class EmoAssistant {
     // Show floating holographic title
     if (this.elements.carouselTitle) {
       this.elements.carouselTitle.classList.remove('hidden');
-      // Position title exactly halfway between mascot bottom and emitter top
-      this._updateCarouselTitlePosition();
-      // Start continuous position updates (mascot animates during carousel)
-      this._startCarouselTitleUpdates();
     }
   }
 
@@ -1066,9 +1054,6 @@ class EmoAssistant {
     this.carousel.hide();
     this.setState('idle');
     this.resetScreen();
-
-    // Stop carousel title position updates
-    this._stopCarouselTitleUpdates();
 
     // Hide floating holographic title
     if (this.elements.carouselTitle) {
@@ -1483,119 +1468,8 @@ class EmoAssistant {
     if (this.elements.carouselTitleVariant) {
       this.elements.carouselTitleVariant.textContent = variant;
     }
-    // Also update position whenever title changes
-    this._updateCarouselTitlePosition();
   }
 
-  /**
-   * Update carousel title position to be exactly halfway between
-   * the mascot's bottom and the emitter base's top.
-   * This ensures the title never overlaps with either element.
-   */
-  _updateCarouselTitlePosition() {
-    const titleEl = this.elements.carouselTitle;
-    if (!titleEl || titleEl.classList.contains('hidden')) return;
-
-    // Get mascot bottom Y (in screen pixels) - project bottom of mascot geometry
-    let mascotBottomY = null;
-    const core3D = this.mascot?.core3D;
-    if (core3D?.renderer?.camera && core3D?.mesh) {
-      const camera = core3D.renderer.camera;
-      const mesh = core3D.mesh;
-      const renderer = core3D.renderer.renderer;
-
-      // Get bounding box of mascot mesh
-      const box = new THREE.Box3().setFromObject(mesh);
-      // Get bottom center point (min Y in world space)
-      const bottomCenter = new THREE.Vector3(
-        (box.min.x + box.max.x) / 2,
-        box.min.y,
-        (box.min.z + box.max.z) / 2
-      );
-
-      // Project to screen coordinates using mascot camera
-      const projected = bottomCenter.clone().project(camera);
-      const rect = renderer.domElement.getBoundingClientRect();
-
-      // Convert from NDC (-1 to 1) to screen pixels
-      // Note: projected.y is inverted (1 = top, -1 = bottom in NDC)
-      mascotBottomY = (-projected.y + 1) / 2 * rect.height + rect.top;
-    }
-
-    // Get emitter base top Y (in screen pixels) - project top of emitter geometry
-    // Use computeSceneBounds() to exclude beam effects (they extend way above the emitter)
-    let emitterTopY = null;
-    if (this.emitterBase?.emitterCamera && this.emitterBase?.renderer && this.emitterBase?.computeSceneBounds) {
-      const emitterCamera = this.emitterBase.emitterCamera;
-      const renderer = this.emitterBase.renderer;
-
-      // Update camera matrices
-      emitterCamera.updateMatrixWorld();
-      emitterCamera.updateProjectionMatrix();
-
-      // Get bounding box EXCLUDING beam effects
-      const bounds = this.emitterBase.computeSceneBounds();
-      // Get top center point (max Y in world space)
-      const topCenter = new THREE.Vector3(
-        bounds.center.x,
-        bounds.max.y,
-        bounds.center.z
-      );
-
-      // Project to screen coordinates using emitter camera
-      const projected = topCenter.clone().project(emitterCamera);
-      const rect = renderer.domElement.getBoundingClientRect();
-
-      // Convert from NDC (-1 to 1) to screen pixels
-      // Note: projected.y is inverted (1 = top, -1 = bottom in NDC)
-      emitterTopY = (-projected.y + 1) / 2 * rect.height + rect.top;
-    }
-
-    // Calculate midpoint and position title
-    if (mascotBottomY !== null && emitterTopY !== null) {
-      const midpointY = (mascotBottomY + emitterTopY) / 2;
-      // Convert to 'bottom' CSS value (from bottom of viewport)
-      const bottomValue = window.innerHeight - midpointY;
-
-      // Debug: log positions once per second
-      if (!this._lastTitleDebug || Date.now() - this._lastTitleDebug > 1000) {
-        console.log('Title position - mascotBottomY:', mascotBottomY.toFixed(0),
-          'emitterTopY:', emitterTopY.toFixed(0),
-          'midpointY:', midpointY.toFixed(0),
-          'bottomValue:', bottomValue.toFixed(0),
-          'viewportH:', window.innerHeight);
-        this._lastTitleDebug = Date.now();
-      }
-
-      titleEl.style.bottom = `${bottomValue}px`;
-      titleEl.style.top = 'auto';
-    }
-  }
-
-  /**
-   * Start continuous carousel title position updates.
-   * Updates every frame while carousel is open to track mascot animations.
-   */
-  _startCarouselTitleUpdates() {
-    // Don't start if already running
-    if (this._carouselTitleUpdateId) return;
-
-    const update = () => {
-      this._updateCarouselTitlePosition();
-      this._carouselTitleUpdateId = requestAnimationFrame(update);
-    };
-    this._carouselTitleUpdateId = requestAnimationFrame(update);
-  }
-
-  /**
-   * Stop continuous carousel title position updates.
-   */
-  _stopCarouselTitleUpdates() {
-    if (this._carouselTitleUpdateId) {
-      cancelAnimationFrame(this._carouselTitleUpdateId);
-      this._carouselTitleUpdateId = null;
-    }
-  }
 
   /**
    * Show the response progress bar

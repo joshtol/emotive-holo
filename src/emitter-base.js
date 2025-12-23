@@ -929,14 +929,6 @@ export class EmitterBase {
     };
     box.getCenter(bounds.center);
 
-    console.log('Scene combined bounds (excluding beam FX):', {
-      width: bounds.width.toFixed(3),
-      height: bounds.height.toFixed(3),
-      depth: bounds.depth.toFixed(3),
-      minY: bounds.min.y.toFixed(3),
-      maxY: bounds.max.y.toFixed(3)
-    });
-
     return bounds;
   }
 
