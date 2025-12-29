@@ -7,7 +7,7 @@
 const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
 
 import * as THREE from 'three';
-import { EmotiveMascot3D } from '@joshtol/emotive-engine/3d';
+import { EmotiveMascot3D, CrystalSoul } from '@joshtol/emotive-engine/3d';
 import { VoiceInput } from './voice-input.js';
 import { ClaudeClient } from './claude-client.js';
 import { NativeTTS } from './native-tts.js';
@@ -92,6 +92,10 @@ class EmoAssistant {
     // Initialize layout scaler for consistent proportions across resolutions
     layoutScaler.init();
     const layout3D = layoutScaler.get3DParams();
+
+    // Preload crystal soul inclusion geometry to prevent race condition
+    // where sync createCrystalInnerCore() runs before async load completes
+    await CrystalSoul._loadInclusionGeometry(`${BASE_PATH}/assets`);
 
     // Check if tutorial should show - if so, start with 'rough' geometry
     const tutorialCheck = new TutorialController({ mascot: null, carousel: null, holoPhone: null, onComplete: () => {} });
