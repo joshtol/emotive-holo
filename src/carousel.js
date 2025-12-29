@@ -11,6 +11,7 @@ export class GeometryCarousel {
     this.mascot = mascot;
     this.container = container;
     this.holoPhone = holoPhone;
+    this.titleElement = document.getElementById('carousel-title');
 
     this.isVisible = false;
     this.currentIndex = 0;
@@ -19,6 +20,10 @@ export class GeometryCarousel {
     this.onSelect = null;
     this.onStateChange = null; // Callback for state changes (show/hide)
     this.onTitleChange = null; // Callback for floating title updates
+
+    // Bind resize handler for dynamic title positioning
+    this._onResize = this._updateTitlePosition.bind(this);
+    window.addEventListener('resize', this._onResize);
 
     // Moon phase slider value (0-1 for phone canvas)
     this._phaseSliderValue = 0.5; // Default to full moon
@@ -176,6 +181,9 @@ export class GeometryCarousel {
     // Float mascot up during selection
     this._animateMascotFloat(true);
 
+    // Position title dynamically between mascot and emitter
+    this._updateTitlePosition();
+
     // Notify state change
     if (this.onStateChange) {
       this.onStateChange('carousel');
@@ -183,6 +191,29 @@ export class GeometryCarousel {
 
     // Update phone display
     this._updatePhoneCarousel();
+  }
+
+  /**
+   * Dynamically position carousel title between mascot bottom and emitter top
+   */
+  _updateTitlePosition() {
+    if (!this.titleElement || !this.isVisible) return;
+
+    const vh = window.innerHeight;
+    const isMobile = window.innerWidth < 768 || window.innerWidth / vh < 1;
+
+    // Mascot is centered vertically, estimate its bottom at ~55% from top
+    // Emitter top is roughly at 70-75% from top of viewport
+    // Position title equidistant between them
+    const mascotBottom = isMobile ? 0.52 : 0.50; // % from top
+    const emitterTop = isMobile ? 0.68 : 0.65;   // % from top
+    const titleCenter = (mascotBottom + emitterTop) / 2;
+
+    // Convert to bottom percentage
+    const bottomPercent = (1 - titleCenter) * 100;
+
+    this.titleElement.style.bottom = `${bottomPercent}%`;
+    this.titleElement.style.top = 'auto';
   }
 
   hide(triggerGesture = false) {
