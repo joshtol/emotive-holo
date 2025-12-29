@@ -130,6 +130,13 @@ export class LayoutScaler {
    */
   init() {
     window.addEventListener('resize', this._onResize);
+
+    // Also listen to visualViewport resize on mobile - this fires when browser
+    // chrome (URL bar, keyboard) appears/disappears, which window.resize doesn't
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', this._onResize);
+    }
+
     this._onResize();
     return this;
   }
@@ -138,8 +145,10 @@ export class LayoutScaler {
    * Handle window resize - update CSS vars based on mobile/desktop
    */
   _onResize() {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    // Use visualViewport when available - gives actual visible area on mobile
+    // (accounts for browser chrome like URL bar, keyboard)
+    const vw = window.visualViewport?.width || window.innerWidth;
+    const vh = window.visualViewport?.height || window.innerHeight;
     const aspect = vw / vh;
 
     // Determine if mobile (portrait or small screen)
@@ -253,6 +262,9 @@ export class LayoutScaler {
    */
   dispose() {
     window.removeEventListener('resize', this._onResize);
+    if (window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', this._onResize);
+    }
   }
 }
 

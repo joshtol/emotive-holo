@@ -195,21 +195,24 @@ export class GeometryCarousel {
 
   /**
    * Dynamically position carousel title between mascot bottom and emitter top
+   * Uses visualViewport on mobile for accurate positioning with browser chrome
    */
   _updateTitlePosition() {
     if (!this.titleElement || !this.isVisible) return;
 
-    const vh = window.innerHeight;
-    const isMobile = window.innerWidth < 768 || window.innerWidth / vh < 1;
+    // Use visualViewport for actual visible height on mobile (accounts for browser UI)
+    const vh = window.visualViewport?.height || window.innerHeight;
+    const vw = window.innerWidth;
+    const isMobile = vw < 768 || vw / vh < 1;
 
-    // Mascot is centered vertically, estimate its bottom at ~55% from top
-    // Emitter top is roughly at 70-75% from top of viewport
-    // Position title equidistant between them
-    const mascotBottom = isMobile ? 0.52 : 0.50; // % from top
-    const emitterTop = isMobile ? 0.68 : 0.65;   // % from top
+    // On mobile, the scene is pushed down relative to what DevTools shows
+    // Use more conservative values that work across real devices
+    // These values position the title in the gap between mascot and emitter
+    const mascotBottom = isMobile ? 0.48 : 0.50; // % from top (mascot bottom edge)
+    const emitterTop = isMobile ? 0.62 : 0.65;   // % from top (emitter top edge)
     const titleCenter = (mascotBottom + emitterTop) / 2;
 
-    // Convert to bottom percentage
+    // Convert to bottom percentage using visual viewport
     const bottomPercent = (1 - titleCenter) * 100;
 
     this.titleElement.style.bottom = `${bottomPercent}%`;
