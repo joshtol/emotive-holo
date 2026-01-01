@@ -456,11 +456,92 @@ body {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PANEL TITLE - Floating holographic title for menu panels
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#panel-title {
+  position: fixed;
+  left: var(--layout-center-x);
+  transform: translateX(-50%) translateY(50%);
+  /* Bottom position set dynamically by menu-panel.js */
+  bottom: 38%;
+  z-index: 100;
+  text-align: center;
+  pointer-events: none;
+  display: inline-block;
+
+  /* Subtle holographic animations */
+  animation: holo-flicker 20s ease-in-out infinite, holo-drift 12s ease-in-out infinite;
+}
+
+#panel-title.hidden {
+  display: none;
+}
+
+/* Main title - panel name with glow */
+#panel-title .title-name {
+  font-family: 'Montserrat', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  position: relative;
+
+  /* Solid bright white */
+  color: #FFFFFF;
+
+  /* Bright white holographic glow */
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.9),
+    0 0 20px rgba(255, 255, 255, 0.7),
+    0 0 40px rgba(200, 230, 255, 0.5),
+    0 0 60px rgba(150, 200, 240, 0.3);
+}
+
+/* Holographic noise overlay */
+#panel-title::after {
+  content: '';
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 120%;
+  height: 120%;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 2px,
+      transparent 4px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0px,
+      rgba(200, 230, 255, 0.02) 2px,
+      transparent 4px,
+      transparent 8px
+    );
+  pointer-events: none;
+  animation: holo-noise 0.15s steps(3) infinite;
+  opacity: 0.8;
+  z-index: 2;
+}
+
 /* Mobile adjustments for floating title */
 @media (max-width: 768px), (orientation: portrait) {
   #carousel-title {
     /* Fallback - JS will override with precise calculated position */
     bottom: 42%;
+  }
+
+  #panel-title {
+    bottom: 42%;
+  }
+
+  #panel-title .title-name {
+    font-size: 1.25rem;
+    letter-spacing: 4px;
   }
 
   #carousel-title .title-name {

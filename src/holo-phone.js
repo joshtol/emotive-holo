@@ -29,7 +29,7 @@ export class HoloPhone {
 
     // Screen content state
     this._screenText = 'Hold to speak';
-    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel, meditation
+    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel, meditation, panel
     this._animationFrame = 0;
     this._progress = 0;  // TTS progress 0-1
 
@@ -48,6 +48,12 @@ export class HoloPhone {
     // Carousel state
     this._carouselData = null;  // { geometries, currentIndex, currentVariantIndex, variants, phase }
     this._carouselHitRegions = [];  // { name, x, y, w, h, extra? }[]
+
+    // Panel state (for menu panels like Effects, Music, etc.)
+    this._panelData = null;  // { id, title, render, hitRegions }
+
+    // Side menu open state (for hamburger/close icon toggle)
+    this._menuOpen = false;
 
     // UV calibration values (can be adjusted in grid mode)
     this._uvMin = { x: 0.023, y: 0.194 };
@@ -164,6 +170,9 @@ export class HoloPhone {
       case 'carousel':
         this._drawCarouselState(ctx, w, h);
         break;
+      case 'panel':
+        this._drawPanelState(ctx, w, h);
+        break;
       default:
         this._drawIdleState(ctx, w, h);
     }
@@ -179,6 +188,9 @@ export class HoloPhone {
    * Uses Poppins font with teal glow (Eye Tea Green #84CFC5)
    */
   _drawIdleState(ctx, w, h) {
+    // Clear hit regions for idle state
+    this._carouselHitRegions = [];
+
     // Draw Emotive Engine full logotype with pulsing glow
     const time = performance.now() / 1000;
     const pulse = Math.sin(time * 1.57) * 0.5 + 0.5;  // ~4 second breathing cycle
@@ -228,6 +240,117 @@ export class HoloPhone {
       ctx.fillText(this._screenText, w / 2, h / 2);
       ctx.shadowBlur = 0;
     }
+
+    // Draw hamburger menu button in top-right corner
+    this._drawHamburgerButton(ctx, w, h, pulse);
+  }
+
+  /**
+   * Draw hamburger menu button on idle screen
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} w - Canvas width
+   * @param {number} h - Canvas height
+   * @param {number} pulse - Current pulse animation value (0-1)
+   */
+  _drawHamburgerButton(ctx, w, h, pulse) {
+    const buttonSize = 60;
+    const padding = 12;
+    const buttonX = w - buttonSize - padding;
+    const buttonY = padding;
+    const centerX = buttonX + buttonSize / 2;
+    const centerY = buttonY + buttonSize / 2;
+
+    // Check if button is pressed
+    const isPressed = this._pressedButton === 'hamburger';
+    const pressProgress = isPressed
+      ? Math.min((performance.now() - this._pressStart) / this._pressDuration, 1)
+      : 0;
+    const flashIntensity = pressProgress < 0.3
+      ? pressProgress / 0.3
+      : 1 - (pressProgress - 0.3) / 0.7;
+
+    // Button background with subtle glow
+    const baseAlpha = 0.15 + pulse * 0.1;
+    const glowAlpha = isPressed ? 0.4 + flashIntensity * 0.3 : 0.2 + pulse * 0.15;
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, buttonSize / 2, 0, Math.PI * 2);
+
+    // Glow effect
+    ctx.shadowColor = `rgba(132, 207, 197, ${glowAlpha})`;
+    ctx.shadowBlur = isPressed ? 15 + flashIntensity * 10 : 8 + pulse * 6;
+
+    // Background
+    ctx.fillStyle = isPressed
+      ? `rgba(132, 207, 197, ${0.25 + flashIntensity * 0.15})`
+      : `rgba(132, 207, 197, ${baseAlpha})`;
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = isPressed
+      ? `rgba(132, 207, 197, ${0.8 + flashIntensity * 0.2})`
+      : `rgba(132, 207, 197, ${0.4 + pulse * 0.2})`;
+    ctx.lineWidth = isPressed ? 2.5 : 2;
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Draw hamburger icon (3 horizontal lines)
+    const lineWidth = 26;
+    const lineHeight = 3.5;
+    const lineGap = 8;
+    const iconStartY = centerY - lineGap - lineHeight / 2;
+
+    ctx.fillStyle = isPressed
+      ? `rgba(255, 255, 255, ${0.9 + flashIntensity * 0.1})`
+      : `rgba(255, 255, 255, ${0.7 + pulse * 0.2})`;
+
+    if (this._menuOpen) {
+      // Draw close (X) icon when menu is open
+      const xSize = 22;
+      const xLineWidth = 4;
+
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = xLineWidth;
+      ctx.lineCap = 'round';
+
+      // First diagonal (\)
+      ctx.beginPath();
+      ctx.moveTo(centerX - xSize / 2, centerY - xSize / 2);
+      ctx.lineTo(centerX + xSize / 2, centerY + xSize / 2);
+      ctx.stroke();
+
+      // Second diagonal (/)
+      ctx.beginPath();
+      ctx.moveTo(centerX + xSize / 2, centerY - xSize / 2);
+      ctx.lineTo(centerX - xSize / 2, centerY + xSize / 2);
+      ctx.stroke();
+    } else {
+      // Draw hamburger icon (3 horizontal lines) when menu is closed
+      // Top line
+      ctx.beginPath();
+      ctx.roundRect(centerX - lineWidth / 2, iconStartY, lineWidth, lineHeight, lineHeight / 2);
+      ctx.fill();
+
+      // Middle line
+      ctx.beginPath();
+      ctx.roundRect(centerX - lineWidth / 2, iconStartY + lineGap, lineWidth, lineHeight, lineHeight / 2);
+      ctx.fill();
+
+      // Bottom line
+      ctx.beginPath();
+      ctx.roundRect(centerX - lineWidth / 2, iconStartY + lineGap * 2, lineWidth, lineHeight, lineHeight / 2);
+      ctx.fill();
+    }
+
+    // Add hit region for hamburger button
+    this._carouselHitRegions.push({
+      name: 'hamburger',
+      x: buttonX - 5,
+      y: buttonY - 5,
+      w: buttonSize + 10,
+      h: buttonSize + 10
+    });
   }
 
   /**
@@ -612,6 +735,201 @@ export class HoloPhone {
     }
   }
 
+  // ==================== PANEL STATE ====================
+
+  /**
+   * Draw panel state - delegates to panel's render function
+   * Used by MenuPanel subclasses (EffectsPanel, MusicPanel, etc.)
+   */
+  _drawPanelState(ctx, w, h) {
+    if (!this._panelData) return;
+
+    // Let the panel handle its own rendering
+    if (typeof this._panelData.render === 'function') {
+      this._panelData.render(ctx, w, h, this);
+    }
+
+    // Update hit regions from panel
+    this._carouselHitRegions = typeof this._panelData.hitRegions === 'function'
+      ? this._panelData.hitRegions()
+      : (this._panelData.hitRegions || []);
+  }
+
+  /**
+   * Draw simple cancel/confirm brackets for panels (no navigation arrows)
+   * Used by panel render functions to match carousel styling
+   */
+  drawPanelBrackets(ctx, w, h) {
+    const bracketWidth = 80;
+    const bracketLineWidth = 4;
+    const bracketInset = 4;
+    const cornerRadius = 28;
+    const edgeInset = 4;
+
+    // Check for pressed buttons
+    const pressProgress = this._pressedButton
+      ? Math.min((performance.now() - this._pressStart) / this._pressDuration, 1)
+      : 0;
+    const flashIntensity = pressProgress < 0.3
+      ? pressProgress / 0.3
+      : 1 - (pressProgress - 0.3) / 0.7;
+
+    const cancelPressed = this._pressedButton === 'cancel';
+    const confirmPressed = this._pressedButton === 'confirm';
+
+    // Colors
+    const magentaFlash = `rgba(221, 74, 154, ${0.9 + flashIntensity * 0.1})`;
+    const greenFlash = `rgba(92, 212, 158, ${0.9 + flashIntensity * 0.1})`;
+    const cancelColor = cancelPressed ? magentaFlash : 'rgba(221, 74, 154, 0.8)';
+    const confirmColor = confirmPressed ? greenFlash : 'rgba(74, 184, 136, 0.8)';
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // LEFT BRACKET - Cancel (full height)
+    ctx.strokeStyle = cancelColor;
+    ctx.lineWidth = cancelPressed ? bracketLineWidth + 2 : bracketLineWidth;
+    if (cancelPressed) {
+      ctx.shadowColor = '#DD4A9A';
+      ctx.shadowBlur = 15 * flashIntensity;
+    }
+    ctx.beginPath();
+    ctx.moveTo(bracketInset + bracketWidth, edgeInset);
+    ctx.lineTo(bracketInset + cornerRadius, edgeInset);
+    ctx.quadraticCurveTo(bracketInset + edgeInset, edgeInset, bracketInset + edgeInset, edgeInset + cornerRadius);
+    ctx.lineTo(bracketInset + edgeInset, h - edgeInset - cornerRadius);
+    ctx.quadraticCurveTo(bracketInset + edgeInset, h - edgeInset, bracketInset + cornerRadius, h - edgeInset);
+    ctx.lineTo(bracketInset + bracketWidth, h - edgeInset);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Cancel icon centered
+    const cancelCenterX = bracketInset + bracketWidth / 2 + 4;
+    const cancelCenterY = h / 2;
+    ctx.fillStyle = cancelPressed ? '#E85DB0' : '#DD4A9A';
+    ctx.shadowColor = '#DD4A9A';
+    ctx.shadowBlur = cancelPressed ? 15 * flashIntensity : 0;
+    ctx.font = '700 28px Poppins, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✕', cancelCenterX, cancelCenterY);
+    ctx.shadowBlur = 0;
+
+    // RIGHT BRACKET - Confirm (full height)
+    const rightX = w - bracketInset - bracketWidth;
+    ctx.strokeStyle = confirmColor;
+    ctx.lineWidth = confirmPressed ? bracketLineWidth + 2 : bracketLineWidth;
+    if (confirmPressed) {
+      ctx.shadowColor = '#5CD49E';
+      ctx.shadowBlur = 15 * flashIntensity;
+    }
+    ctx.beginPath();
+    ctx.moveTo(rightX, edgeInset);
+    ctx.lineTo(rightX + bracketWidth - cornerRadius, edgeInset);
+    ctx.quadraticCurveTo(rightX + bracketWidth - edgeInset, edgeInset, rightX + bracketWidth - edgeInset, edgeInset + cornerRadius);
+    ctx.lineTo(rightX + bracketWidth - edgeInset, h - edgeInset - cornerRadius);
+    ctx.quadraticCurveTo(rightX + bracketWidth - edgeInset, h - edgeInset, rightX + bracketWidth - cornerRadius, h - edgeInset);
+    ctx.lineTo(rightX, h - edgeInset);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Confirm icon centered
+    const confirmCenterX = rightX + bracketWidth / 2 - 4;
+    const confirmCenterY = h / 2;
+    ctx.fillStyle = confirmPressed ? '#5CD49E' : '#4AB888';
+    ctx.shadowColor = '#5CD49E';
+    ctx.shadowBlur = confirmPressed ? 15 * flashIntensity : 0;
+    ctx.font = '700 28px Poppins, sans-serif';
+    ctx.fillText('✓', confirmCenterX, confirmCenterY);
+    ctx.shadowBlur = 0;
+
+    // Return hit regions
+    return [
+      { name: 'cancel', x: 0, y: 0, w: bracketWidth + bracketInset, h: h },
+      { name: 'confirm', x: w - bracketWidth - bracketInset, y: 0, w: bracketWidth + bracketInset, h: h }
+    ];
+  }
+
+  /**
+   * Draw text variant pills (shared between carousel and panels)
+   * @returns {Array} Hit regions for the pills
+   */
+  drawTextPills(ctx, options, y, height, canvasWidth) {
+    const { items, selectedIndices, centerX, centerWidth, onToggle } = options;
+    const pillHeight = 44;
+    const pillPadding = 24;
+    const checkmarkWidth = 22;
+    const spacing = 14;
+    const hitRegions = [];
+
+    // Accent color (matches 3d-example-style.css --accent)
+    const accentColor = '#6ee7ff';
+    const accentRgb = '110, 231, 255';
+
+    // Measure all pills (including space for checkmark when active)
+    ctx.font = '600 16px Poppins, sans-serif';
+    const pillWidths = items.map(item => {
+      const textWidth = ctx.measureText(item.label).width;
+      return textWidth + pillPadding * 2 + checkmarkWidth;
+    });
+    const totalWidth = pillWidths.reduce((a, b) => a + b, 0) + (items.length - 1) * spacing;
+    let startX = centerX + (centerWidth - totalWidth) / 2;
+
+    // Position pills centered in available height
+    const pillY = y + height / 2 - pillHeight / 2;
+
+    items.forEach((item, i) => {
+      const pillW = pillWidths[i];
+      const pillX = startX;
+      const isActive = selectedIndices ? selectedIndices.includes(i) : (item.active === true);
+
+      // Pill background - transparent base, accent tint when active
+      ctx.fillStyle = isActive
+        ? `rgba(${accentRgb}, 0.2)`
+        : 'rgba(255, 255, 255, 0.08)';
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillHeight, pillHeight / 2);
+      ctx.fill();
+
+      // Border - thicker, accent when active, subtle when inactive
+      ctx.strokeStyle = isActive
+        ? accentColor
+        : 'rgba(255, 255, 255, 0.25)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // Checkmark for active state (positioned left of text)
+      if (isActive) {
+        ctx.fillStyle = accentColor;
+        ctx.font = '700 16px Poppins, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('✓', pillX + pillPadding, pillY + pillHeight / 2);
+      }
+
+      // Text - accent when active, muted when inactive
+      ctx.fillStyle = isActive ? accentColor : 'rgba(255, 255, 255, 0.6)';
+      ctx.font = '600 16px Poppins, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(item.label.toUpperCase(), pillX + pillW / 2 + (isActive ? 5 : 0), pillY + pillHeight / 2);
+
+      // Hit region
+      hitRegions.push({
+        name: `pill-${i}`,
+        x: pillX - 5,
+        y: pillY - 5,
+        w: pillW + 10,
+        h: pillHeight + 10,
+        extra: { index: i, id: item.id, label: item.label }
+      });
+
+      startX += pillW + spacing;
+    });
+
+    return hitRegions;
+  }
+
   // ==================== CAROUSEL STATE ====================
 
   /**
@@ -643,6 +961,40 @@ export class HoloPhone {
       this._screenState = 'idle';
       this._screenText = 'Hold to speak';
     }
+    this._renderScreen();
+  }
+
+  /**
+   * Set panel data and enter panel mode
+   * Used by MenuPanel subclasses (EffectsPanel, MusicPanel, etc.)
+   * @param {Object|null} data - Panel data or null to exit
+   * @param {string} data.id - Panel identifier
+   * @param {string} data.title - Panel title
+   * @param {Function} data.render - Render function (ctx, w, h) => void
+   * @param {Function} data.hitRegions - Function returning hit regions array
+   */
+  setPanelData(data) {
+    this._panelData = data;
+    if (data) {
+      this._screenState = 'panel';
+      // Update hit regions from panel
+      this._carouselHitRegions = typeof data.hitRegions === 'function'
+        ? data.hitRegions()
+        : (data.hitRegions || []);
+    } else {
+      this._screenState = 'idle';
+      this._screenText = 'Hold to speak';
+      this._carouselHitRegions = [];
+    }
+    this._renderScreen();
+  }
+
+  /**
+   * Set side menu open state (toggles hamburger/close icon)
+   * @param {boolean} isOpen - Whether the side menu is open
+   */
+  setMenuOpen(isOpen) {
+    this._menuOpen = isOpen;
     this._renderScreen();
   }
 

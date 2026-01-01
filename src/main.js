@@ -19,6 +19,7 @@ import { HoloPhone } from './holo-phone.js';
 import { layoutScaler } from './layout-scaler.js';
 import { StoryDirector } from './story-director.js';
 import { TutorialController } from './tutorial.js';
+import { EffectsPanel } from './panels/effects-panel.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
@@ -49,6 +50,7 @@ class EmoAssistant {
     this.tts = null;
     this.meditation = null;
     this.carousel = null;
+    this.effectsPanel = null;
     this.storyDirector = null;
     this.tutorial = null;
 
@@ -116,7 +118,7 @@ class EmoAssistant {
       autoRotate: true,
       cameraDistance: layout3D.cameraDistance,
       fov: 45,
-      enableBlinking: true,
+      enableBlinking: false,  // Disabled by default - blink is distracting
       enableBreathing: true,
       targetFPS: 60,
       backgroundColor: 0x000000,
@@ -271,11 +273,19 @@ class EmoAssistant {
         onOpen: () => {
           this.setState('menu');
           this.mascot.feel('calm, attentive');
+          // Update holophone hamburger to show close icon
+          if (this.holoPhone3D) {
+            this.holoPhone3D.setMenuOpen(true);
+          }
         },
         onClose: () => {
           // Only reset if we're still in menu state (not if selection triggered something else)
           if (this.state === 'menu') {
             this.setState('idle');
+          }
+          // Update holophone to show hamburger icon
+          if (this.holoPhone3D) {
+            this.holoPhone3D.setMenuOpen(false);
           }
         }
       });
@@ -373,6 +383,28 @@ class EmoAssistant {
     this.meditation = new MeditationController(this.mascot, this.tts, this.elements, this.holoPhone3D);
     // Pass holoPhone3D to carousel so it can render on the phone screen
     this.carousel = new GeometryCarousel(this.mascot, this.elements.container, this.holoPhone3D);
+
+    // Effects panel for visual effect toggles (particles, rotation, wobble, breathing)
+    this.effectsPanel = new EffectsPanel({
+      holoPhone: this.holoPhone3D,
+      mascot: this.mascot,  // Pass mascot for float animation
+      app: this,  // Pass app reference for applyToggle
+      onClose: () => {
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();  // Close side menu when panel closes
+      },
+      onConfirm: (state) => {
+        console.log('Effects confirmed:', state);
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();  // Close side menu when panel confirms
+      },
+      onChange: (state) => {
+        console.log('Effects changed:', state);
+      }
+    });
+
     // StoryDirector for inline story directives
     this.storyDirector = new StoryDirector(this.mascot);
 
@@ -491,6 +523,12 @@ class EmoAssistant {
         return;
       }
 
+      // Route to panel if in panel state
+      if (this.state === 'panel') {
+        this._handlePanelTouch(e.clientX, e.clientY, 'start');
+        return;
+      }
+
       // Cancel meditation on click
       if (this.state === 'meditation') {
         console.log('Cancelling meditation via click');
@@ -504,6 +542,13 @@ class EmoAssistant {
       if (this.state === 'speaking' || this.state === 'processing') {
         this._handleSpeakingTouch(e.clientX, e.clientY);
         return;
+      }
+
+      // Check for hamburger button in idle or menu state
+      if (this.state === 'idle' || this.state === 'menu') {
+        if (this._handleIdleTouch(e.clientX, e.clientY)) {
+          return;
+        }
       }
 
       this.startListening();
@@ -551,6 +596,13 @@ class EmoAssistant {
         return;
       }
 
+      // Route to panel if in panel state
+      if (this.state === 'panel') {
+        const touch = e.touches[0];
+        this._handlePanelTouch(touch.clientX, touch.clientY, 'start');
+        return;
+      }
+
       // Cancel meditation on touch
       if (this.state === 'meditation') {
         console.log('Cancelling meditation via touch');
@@ -565,6 +617,14 @@ class EmoAssistant {
         const touch = e.touches[0];
         this._handleSpeakingTouch(touch.clientX, touch.clientY);
         return;
+      }
+
+      // Check for hamburger button in idle or menu state
+      if (this.state === 'idle' || this.state === 'menu') {
+        const touch = e.touches[0];
+        if (this._handleIdleTouch(touch.clientX, touch.clientY)) {
+          return;
+        }
       }
 
       this.startListening();
@@ -1076,6 +1136,12 @@ class EmoAssistant {
     // Screen is now controlled by carousel via holoPhone.setCarouselData()
     this.carousel.show();
 
+    // Hide panel title if visible (switching from panel to carousel)
+    const panelTitle = document.getElementById('panel-title');
+    if (panelTitle) {
+      panelTitle.classList.add('hidden');
+    }
+
     // Show floating holographic title
     if (this.elements.carouselTitle) {
       this.elements.carouselTitle.classList.remove('hidden');
@@ -1147,8 +1213,11 @@ class EmoAssistant {
   _handleSideMenuSelect(menuId) {
     console.log('Side menu action:', menuId);
 
-    // Close the menu first
-    this.sideMenu.close();
+    // Keep menu open for panel states, close for others
+    const keepMenuOpen = ['effects', 'settings', 'moods', 'music'].includes(menuId);
+    if (!keepMenuOpen) {
+      this.sideMenu.close();
+    }
 
     switch (menuId) {
       case 'music':
@@ -1174,11 +1243,10 @@ class EmoAssistant {
         break;
 
       case 'effects':
-        // TODO: Toggle particles, wobble, breathing sync
-        this.setState('idle');
-        this.setScreen('Effects coming soon!', '');
-        this.mascot.feel('excited, sparkle');
-        this.scheduleScreenRevert();
+        // Open effects panel - keep side menu visible
+        this.setState('panel');
+        this.mascot.feel('calm, attentive');
+        this.effectsPanel.show();
         break;
 
       case 'settings':
@@ -1261,6 +1329,12 @@ class EmoAssistant {
    */
   resetScreen() {
     this.setScreen(this.DEFAULT_SCREEN_TEXT, '');
+
+    // Hide panel title if visible
+    const panelTitle = document.getElementById('panel-title');
+    if (panelTitle) {
+      panelTitle.classList.add('hidden');
+    }
   }
 
   /**
@@ -1291,10 +1365,14 @@ class EmoAssistant {
         break;
 
       case 'blinking':
+      case 'blink':
+        console.log('Blink toggle - enabled:', enabled, 'methods exist:', !!this.mascot.enableBlinking, !!this.mascot.disableBlinking);
         if (enabled && this.mascot.enableBlinking) {
           this.mascot.enableBlinking();
+          console.log('Called enableBlinking()');
         } else if (!enabled && this.mascot.disableBlinking) {
           this.mascot.disableBlinking();
+          console.log('Called disableBlinking()');
         }
         break;
 
@@ -1309,10 +1387,34 @@ class EmoAssistant {
       case 'autorotate':
       case 'auto-rotate':
       case 'rotation':
+        console.log('AutoRotate toggle - enabled:', enabled);
         if (enabled && this.mascot.enableAutoRotate) {
           this.mascot.enableAutoRotate();
+          // Also sync to BehaviorController (workaround for engine sync issue)
+          if (this.mascot.core3D?.behaviorController) {
+            this.mascot.core3D.behaviorController.rotationDisabled = false;
+          }
+          console.log('Called enableAutoRotate()');
         } else if (!enabled && this.mascot.disableAutoRotate) {
           this.mascot.disableAutoRotate();
+          // Also sync to BehaviorController (workaround for engine sync issue)
+          if (this.mascot.core3D?.behaviorController) {
+            this.mascot.core3D.behaviorController.rotationDisabled = true;
+            this.mascot.core3D.behaviorController._disableRotation();
+          }
+          console.log('Called disableAutoRotate() + synced BehaviorController');
+        } else {
+          console.warn('AutoRotate methods not available on mascot');
+        }
+        break;
+
+      case 'glow':
+        // Toggle core glow effect via core3D (correct API from demo-utils.js)
+        if (this.mascot.core3D?.setCoreGlowEnabled) {
+          this.mascot.core3D.setCoreGlowEnabled(enabled);
+          console.log(`Core glow ${enabled ? 'enabled' : 'disabled'}`);
+        } else {
+          console.warn('Core glow toggle not available on mascot.core3D');
         }
         break;
 
@@ -1600,6 +1702,86 @@ class EmoAssistant {
       this.carousel.handlePhaseSliderDrag(normalizedX);
     }
   }
+
+  // ==================== PANEL TOUCH HANDLING ====================
+
+  /**
+   * Handle touch/click on the panel
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   * @param {string} eventType - 'start', 'move', or 'end'
+   */
+  _handlePanelTouch(clientX, clientY, eventType) {
+    if (!this.holoPhone3D || !this.effectsPanel) {
+      console.log('_handlePanelTouch: missing holoPhone3D or effectsPanel');
+      return;
+    }
+
+    const canvasCoords = this._screenToPhoneCanvas(clientX, clientY);
+    if (!canvasCoords) {
+      console.log('Panel touch outside phone screen');
+      return;
+    }
+
+    const hitRegion = this.holoPhone3D.getHitRegion(canvasCoords.x, canvasCoords.y);
+
+    if (hitRegion) {
+      console.log('Panel hit:', hitRegion.name, hitRegion.extra);
+
+      // Flash button feedback for cancel/confirm
+      if (['cancel', 'confirm'].includes(hitRegion.name)) {
+        this.holoPhone3D.flashButton(hitRegion.name);
+      }
+
+      // Handle panel touch regions with delay for visual feedback
+      if (hitRegion.name === 'cancel' || hitRegion.name === 'confirm') {
+        setTimeout(() => {
+          this.effectsPanel.handleTouch(hitRegion.name, hitRegion.extra);
+        }, 150);
+        return;
+      }
+
+      // Handle toggle buttons and other regions immediately
+      this.effectsPanel.handleTouch(hitRegion.name, hitRegion.extra);
+    }
+  }
+
+  // ==================== IDLE TOUCH HANDLING ====================
+
+  /**
+   * Handle touch/click on idle screen (hamburger button)
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   * @returns {boolean} - True if touch was handled, false otherwise
+   */
+  _handleIdleTouch(clientX, clientY) {
+    if (!this.holoPhone3D) return false;
+
+    const canvasCoords = this._screenToPhoneCanvas(clientX, clientY);
+    if (!canvasCoords) return false;
+
+    const hitRegion = this.holoPhone3D.getHitRegion(canvasCoords.x, canvasCoords.y);
+
+    if (hitRegion && hitRegion.name === 'hamburger') {
+      console.log('Hamburger button tapped, menu open:', this.sideMenu?.isOpen);
+
+      // Flash the button for visual feedback
+      this.holoPhone3D.flashButton('hamburger');
+
+      // Toggle side menu after brief delay for visual feedback
+      setTimeout(() => {
+        if (this.sideMenu) {
+          this.sideMenu.toggle();
+        }
+      }, 100);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  // ==================== CAROUSEL TITLE ====================
 
   /**
    * Update the floating holographic carousel title
