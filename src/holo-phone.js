@@ -977,7 +977,9 @@ export class HoloPhone {
     this._panelData = data;
     if (data) {
       this._screenState = 'panel';
-      // Update hit regions from panel
+      // Render first so hit regions are populated correctly
+      this._renderScreen();
+      // Then get hit regions (after render has updated them)
       this._carouselHitRegions = typeof data.hitRegions === 'function'
         ? data.hitRegions()
         : (data.hitRegions || []);
@@ -985,8 +987,8 @@ export class HoloPhone {
       this._screenState = 'idle';
       this._screenText = 'Hold to speak';
       this._carouselHitRegions = [];
+      this._renderScreen();
     }
-    this._renderScreen();
   }
 
   /**

@@ -32,7 +32,10 @@ export class MeditationController {
     // Breathing patterns for UI display
     this.patterns = {
       default: { inhale: 4, holdIn: 7, exhale: 8, holdOut: 0 },  // 4-7-8 meditative breathing
-      box: { inhale: 4, holdIn: 4, exhale: 4, holdOut: 4 }       // 4-4-4-4 box breathing
+      box: { inhale: 4, holdIn: 4, exhale: 4, holdOut: 4 },      // 4-4-4-4 box breathing
+      calm: { inhale: 4, holdIn: 4, exhale: 8, holdOut: 0 },     // 4-4-8 simple calming
+      quick: { inhale: 2, holdIn: 0, exhale: 4, holdOut: 0 },    // 2-4 quick stress relief
+      balance: { inhale: 5, holdIn: 0, exhale: 5, holdOut: 0 }   // 5-5 equal balance
     };
     this.pattern = { ...this.patterns.default };
     this.patternName = 'default';

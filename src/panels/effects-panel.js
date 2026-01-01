@@ -55,6 +55,7 @@ export class EffectsPanel extends MenuPanel {
     // Tooltip state
     this._activeTooltip = null;
     this._tooltipTimeout = null;
+    this._tooltipRegion = null;  // Hit region for active tooltip
   }
 
   /**
@@ -65,6 +66,7 @@ export class EffectsPanel extends MenuPanel {
     this._originalStates = { ...this.effectStates };
     // Clear any lingering tooltip
     this._activeTooltip = null;
+    this._tooltipRegion = null;
     if (this._tooltipTimeout) clearTimeout(this._tooltipTimeout);
   }
 
@@ -238,7 +240,10 @@ export class EffectsPanel extends MenuPanel {
    * Draw tooltip bubble near the info icon
    */
   _drawTooltip(ctx, canvasW, canvasH) {
-    if (!this._activeTooltip) return;
+    if (!this._activeTooltip) {
+      this._tooltipRegion = null;
+      return;
+    }
 
     const { desc, x, y } = this._activeTooltip;
     const padding = 20;
@@ -281,6 +286,15 @@ export class EffectsPanel extends MenuPanel {
     // Keep within canvas bounds vertically
     tooltipY = Math.max(10, Math.min(canvasH - tooltipH - 10, tooltipY));
 
+    // Store tooltip region for hit detection (dismiss on tap)
+    this._tooltipRegion = {
+      name: 'tooltip',
+      x: tooltipX,
+      y: tooltipY,
+      w: tooltipW,
+      h: tooltipH
+    };
+
     // Draw tooltip background
     ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
     ctx.beginPath();
@@ -304,15 +318,30 @@ export class EffectsPanel extends MenuPanel {
 
   /**
    * Get hit regions including brackets, toggles, and info icons
+   * Tooltip region comes first so clicks on tooltip dismiss it instead of toggling
    */
   getHitRegions() {
-    return [...this._bracketRegions, ...this._infoRegions, ...this._toggleRegions];
+    const regions = [...this._bracketRegions];
+    // Add tooltip region first if active (so it intercepts clicks)
+    if (this._tooltipRegion) {
+      regions.push(this._tooltipRegion);
+    }
+    return [...regions, ...this._infoRegions, ...this._toggleRegions];
   }
 
   /**
    * Handle custom touch regions
    */
   _handleCustomTouch(regionName, extra) {
+    // Handle tooltip tap (dismiss it)
+    if (regionName === 'tooltip') {
+      this._activeTooltip = null;
+      this._tooltipRegion = null;
+      if (this._tooltipTimeout) clearTimeout(this._tooltipTimeout);
+      this.updatePhoneDisplay();
+      return;
+    }
+
     // Handle info icon taps
     if (regionName.startsWith('info-')) {
       const { desc, iconX, iconY } = extra || {};
@@ -320,12 +349,14 @@ export class EffectsPanel extends MenuPanel {
         // Toggle tooltip - if same one is showing, hide it
         if (this._activeTooltip?.desc === desc) {
           this._activeTooltip = null;
+          this._tooltipRegion = null;
         } else {
           this._activeTooltip = { desc, x: iconX, y: iconY };
           // Auto-hide after 3 seconds
           if (this._tooltipTimeout) clearTimeout(this._tooltipTimeout);
           this._tooltipTimeout = setTimeout(() => {
             this._activeTooltip = null;
+            this._tooltipRegion = null;
             this.updatePhoneDisplay();
           }, 3000);
         }
@@ -338,6 +369,7 @@ export class EffectsPanel extends MenuPanel {
     if (regionName.startsWith('toggle-')) {
       // Dismiss any active tooltip
       this._activeTooltip = null;
+      this._tooltipRegion = null;
       if (this._tooltipTimeout) clearTimeout(this._tooltipTimeout);
 
       const effectId = extra?.effectId;

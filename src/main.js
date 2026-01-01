@@ -20,6 +20,7 @@ import { layoutScaler } from './layout-scaler.js';
 import { StoryDirector } from './story-director.js';
 import { TutorialController } from './tutorial.js';
 import { EffectsPanel } from './panels/effects-panel.js';
+import { MeditatePanel } from './panels/meditate-panel.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
@@ -51,6 +52,7 @@ class EmoAssistant {
     this.meditation = null;
     this.carousel = null;
     this.effectsPanel = null;
+    this.meditatePanel = null;
     this.storyDirector = null;
     this.tutorial = null;
 
@@ -402,6 +404,26 @@ class EmoAssistant {
       },
       onChange: (state) => {
         console.log('Effects changed:', state);
+      }
+    });
+
+    // Meditate panel for breathing pattern selection
+    this.meditatePanel = new MeditatePanel({
+      holoPhone: this.holoPhone3D,
+      mascot: this.mascot,
+      meditation: this.meditation,
+      onClose: () => {
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();
+      },
+      onConfirm: (data) => {
+        console.log('Meditation pattern selected:', data);
+        // Start meditation with selected pattern
+        this._startMeditationWithPattern(data);
+      },
+      onChange: (state) => {
+        console.log('Meditate selection changed:', state);
       }
     });
 
@@ -1229,17 +1251,10 @@ class EmoAssistant {
         break;
 
       case 'meditate':
-        // Start meditation directly with default pattern
-        this.setState('speaking');
-        this.setScreen('', 'speaking');
-        this.mascot.feel('calm, settle');
-
-        // Speak intro then start meditation
-        const introText = "Let's take a moment to breathe together. Find a comfortable position and follow my guidance.";
-        this.tts.speak(introText).then(() => {
-          this.setState('meditation');
-          this.meditation.start();
-        });
+        // Open meditate panel to select breathing pattern
+        this.setState('panel');
+        this.mascot.feel('calm, attentive');
+        this.meditatePanel.show();
         break;
 
       case 'effects':
@@ -1533,6 +1548,33 @@ class EmoAssistant {
   }
 
   /**
+   * Start meditation with selected breathing pattern
+   * @param {Object} data - Pattern selection data from MeditatePanel
+   */
+  _startMeditationWithPattern(data) {
+    // Close side menu
+    this.sideMenu.close();
+
+    // Set the pattern on meditation controller
+    if (this.meditation && data.patternId) {
+      this.meditation.setPattern(data.patternId);
+    }
+
+    // Start meditation with intro speech
+    this.setState('speaking');
+    this.setScreen('', 'speaking');
+    this.mascot.feel('calm, settle');
+
+    const patternName = data.patternName || 'breathing';
+    const introText = `Let's begin ${patternName}. Find a comfortable position and follow my guidance.`;
+
+    this.tts.speak(introText).then(() => {
+      this.setState('meditation');
+      this.meditation.start();
+    });
+  }
+
+  /**
    * Convert screen coordinates to phone canvas coordinates using raycasting
    * Falls back to projected screen bounds if raycasting fails
    * @param {number} clientX - Screen X coordinate
@@ -1712,8 +1754,15 @@ class EmoAssistant {
    * @param {string} eventType - 'start', 'move', or 'end'
    */
   _handlePanelTouch(clientX, clientY, eventType) {
-    if (!this.holoPhone3D || !this.effectsPanel) {
-      console.log('_handlePanelTouch: missing holoPhone3D or effectsPanel');
+    if (!this.holoPhone3D) {
+      console.log('_handlePanelTouch: missing holoPhone3D');
+      return;
+    }
+
+    // Determine which panel is currently active
+    const activePanel = this._getActivePanel();
+    if (!activePanel) {
+      console.log('_handlePanelTouch: no active panel');
       return;
     }
 
@@ -1736,14 +1785,24 @@ class EmoAssistant {
       // Handle panel touch regions with delay for visual feedback
       if (hitRegion.name === 'cancel' || hitRegion.name === 'confirm') {
         setTimeout(() => {
-          this.effectsPanel.handleTouch(hitRegion.name, hitRegion.extra);
+          activePanel.handleTouch(hitRegion.name, hitRegion.extra);
         }, 150);
         return;
       }
 
       // Handle toggle buttons and other regions immediately
-      this.effectsPanel.handleTouch(hitRegion.name, hitRegion.extra);
+      activePanel.handleTouch(hitRegion.name, hitRegion.extra);
     }
+  }
+
+  /**
+   * Get the currently active panel
+   * @returns {MenuPanel|null} The active panel or null
+   */
+  _getActivePanel() {
+    if (this.effectsPanel?.isVisible) return this.effectsPanel;
+    if (this.meditatePanel?.isVisible) return this.meditatePanel;
+    return null;
   }
 
   // ==================== IDLE TOUCH HANDLING ====================
