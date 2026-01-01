@@ -13,6 +13,7 @@ import { ClaudeClient } from './claude-client.js';
 import { NativeTTS } from './native-tts.js';
 import { MeditationController } from './meditation.js';
 import { GeometryCarousel } from './carousel.js';
+import { SideMenu } from './side-menu.js';
 import { EmitterBase } from './emitter-base.js';
 import { HoloPhone } from './holo-phone.js';
 import { layoutScaler } from './layout-scaler.js';
@@ -23,9 +24,12 @@ import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra
 class EmoAssistant {
   constructor() {
     // State
-    this.state = 'idle'; // idle, listening, thinking, speaking, meditation, carousel, tutorial
+    this.state = 'idle'; // idle, listening, thinking, speaking, meditation, carousel, menu, tutorial
     this.currentGeometry = 'crystal';
     this.mascot = null;
+
+    // Side menu (floating CSS labels)
+    this.sideMenu = null;
 
     // Idle revert timer - returns to calm state after activity
     this._idleRevertTimer = null;
@@ -256,6 +260,25 @@ class EmoAssistant {
           this.emitterBase.setViewOffset(width, height, offsetX, 0, width, height);
         }
       }
+
+      // Initialize side menu (CSS floating labels)
+      this.sideMenu = new SideMenu({
+        layoutScaler: layoutScaler,
+        onSelect: (menuId) => {
+          console.log('Side menu selected:', menuId);
+          this._handleSideMenuSelect(menuId);
+        },
+        onOpen: () => {
+          this.setState('menu');
+          this.mascot.feel('calm, attentive');
+        },
+        onClose: () => {
+          // Only reset if we're still in menu state (not if selection triggered something else)
+          if (this.state === 'menu') {
+            this.setState('idle');
+          }
+        }
+      });
 
       // Hook into the mascot's render loop to render emitter AFTER main scene
       // Emitter renders on top with depth cleared so it's always visible
@@ -592,18 +615,20 @@ class EmoAssistant {
       }, { passive: false });
     }
 
-    // Keyboard shortcut (spacebar for voice, escape to cancel)
+    // Keyboard shortcut (spacebar for voice, escape to cancel/close)
     document.addEventListener('keydown', (e) => {
       if (e.code === 'Space' && !e.repeat && this.state === 'idle') {
         e.preventDefault();
         this.startListening();
       }
-      // Escape key cancels meditation or current operation
+      // Escape key cancels meditation, menu, or current operation
       if (e.code === 'Escape') {
         e.preventDefault();
         if (this.state === 'meditation') {
           this.meditation.stop();
           this.setState('idle');
+        } else if (this.state === 'menu') {
+          this.closeSideMenu();
         } else {
           this.cancelCurrentOperation();
         }
@@ -616,9 +641,12 @@ class EmoAssistant {
       }
     });
 
-    // Click on mascot to open carousel
-    this.elements.container.addEventListener('click', () => {
+    // Click on mascot to open carousel (geometry selection)
+    this.elements.container.addEventListener('click', (e) => {
+      console.log('Container click, state:', this.state);
+
       if (this.state === 'idle') {
+        console.log('Opening carousel');
         this.openCarousel();
       }
     });
@@ -1052,6 +1080,11 @@ class EmoAssistant {
     if (this.elements.carouselTitle) {
       this.elements.carouselTitle.classList.remove('hidden');
     }
+
+    // Show hamburger menu button
+    if (this.sideMenu) {
+      this.sideMenu.showHamburger();
+    }
   }
 
   closeCarousel() {
@@ -1064,10 +1097,118 @@ class EmoAssistant {
       this.elements.carouselTitle.classList.add('hidden');
     }
 
+    // Hide hamburger menu and close side menu if open
+    if (this.sideMenu) {
+      this.sideMenu.hideHamburger();
+      this.sideMenu.close();
+    }
+
     // Phone overlay stays visible - it's used for all touch interactions
 
     // Don't schedule idle revert if user manually selected something
     // They chose it deliberately, so keep it until they interact again
+  }
+
+  /**
+   * Open the side menu (Music, Meditate, Effects | Settings, Moods, Stories)
+   */
+  openSideMenu() {
+    if (this.state !== 'idle' && this.state !== 'carousel') return;
+    if (!this.sideMenu) return;
+
+    // Clear timers
+    this.clearIdleRevert();
+    this.clearScreenRevert();
+
+    // Sync audio progression with meditation audio for musical continuity
+    if (this.meditation?.breathingAudio) {
+      this.sideMenu.syncAudio(this.meditation.breathingAudio);
+    }
+
+    // State changes handled by onOpen callback
+    this.sideMenu.open();
+  }
+
+  /**
+   * Close the side menu
+   */
+  closeSideMenu() {
+    if (!this.sideMenu) return;
+
+    // State changes handled by onClose callback
+    this.sideMenu.close();
+    this.resetScreen();
+  }
+
+  /**
+   * Handle side menu selection
+   * @param {string} menuId - Menu item ID (music, meditate, effects, settings, moods, stories)
+   */
+  _handleSideMenuSelect(menuId) {
+    console.log('Side menu action:', menuId);
+
+    // Close the menu first
+    this.sideMenu.close();
+
+    switch (menuId) {
+      case 'music':
+        // TODO: Open music sub-menu with track selection
+        this.setState('idle');
+        this.setScreen('Music coming soon!', '');
+        this.mascot.feel('joy, bounce');
+        this.scheduleScreenRevert();
+        break;
+
+      case 'meditate':
+        // Start meditation directly with default pattern
+        this.setState('speaking');
+        this.setScreen('', 'speaking');
+        this.mascot.feel('calm, settle');
+
+        // Speak intro then start meditation
+        const introText = "Let's take a moment to breathe together. Find a comfortable position and follow my guidance.";
+        this.tts.speak(introText).then(() => {
+          this.setState('meditation');
+          this.meditation.start();
+        });
+        break;
+
+      case 'effects':
+        // TODO: Toggle particles, wobble, breathing sync
+        this.setState('idle');
+        this.setScreen('Effects coming soon!', '');
+        this.mascot.feel('excited, sparkle');
+        this.scheduleScreenRevert();
+        break;
+
+      case 'settings':
+        // TODO: Open settings panel (volume, voice, API key)
+        this.setState('idle');
+        this.setScreen('Settings coming soon!', '');
+        this.mascot.feel('focused, nod');
+        this.scheduleScreenRevert();
+        break;
+
+      case 'moods':
+        // TODO: Quick emotion presets
+        this.setState('idle');
+        this.setScreen('Moods coming soon!', '');
+        this.mascot.feel('love, pulse');
+        this.scheduleScreenRevert();
+        break;
+
+      case 'stories':
+        // TODO: Narrative demos with StoryDirector
+        this.setState('idle');
+        this.setScreen('Stories coming soon!', '');
+        this.mascot.feel('surprise, expand');
+        this.scheduleScreenRevert();
+        break;
+
+      default:
+        this.setState('idle');
+        this.resetScreen();
+    }
   }
 
   setState(newState) {
