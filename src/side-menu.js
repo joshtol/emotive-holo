@@ -30,8 +30,8 @@ export class SideMenu {
 
     this.rightItems = [
       { id: 'settings', label: 'SETTINGS', icon: '⚙' },
-      { id: 'moods', label: 'MOODS', icon: '☼' },
-      { id: 'stories', label: 'STORIES', icon: '☰' }
+      { id: 'moods', label: 'MOODS', icon: '☽' },
+      { id: 'stories', label: 'STORIES', icon: '☷' }
     ];
 
     // Audio
@@ -84,13 +84,13 @@ export class SideMenu {
       /* All positioning calculated from center (--layout-center-x) */
       .side-menu-column {
         position: absolute;
-        top: 42%;
+        top: 38%;
         transform: translateY(-50%);
         display: flex;
         flex-direction: column;
         gap: 2.5rem;
         pointer-events: none;
-        padding: 2.5rem 0;
+        padding: 1.5rem 0;
       }
 
       /* Bracket - vertical line with glow */
@@ -99,18 +99,18 @@ export class SideMenu {
         position: absolute;
         top: 0;
         bottom: 0;
-        width: 3px;
+        width: 2px;
         background: linear-gradient(
           to bottom,
           transparent 0%,
-          rgba(120, 180, 220, 0.4) 10%,
-          rgba(120, 180, 220, 0.7) 50%,
-          rgba(120, 180, 220, 0.4) 90%,
+          rgba(120, 180, 220, 0.3) 10%,
+          rgba(120, 180, 220, 0.5) 50%,
+          rgba(120, 180, 220, 0.3) 90%,
           transparent 100%
         );
         box-shadow:
-          0 0 10px rgba(120, 180, 220, 0.6),
-          0 0 20px rgba(120, 180, 220, 0.3);
+          0 0 8px rgba(120, 180, 220, 0.4),
+          0 0 15px rgba(120, 180, 220, 0.2);
         opacity: 0;
         transition: opacity 0.4s ease;
       }
@@ -214,7 +214,7 @@ export class SideMenu {
       .side-menu-icon {
         font-size: 2.25rem;
         line-height: 1;
-        color: rgba(200, 220, 240, 0.9);
+        color: rgba(200, 220, 240, 0.7);
         transition:
           transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
           color 0.25s ease,
@@ -227,7 +227,7 @@ export class SideMenu {
         letter-spacing: 0.2em;
         text-transform: uppercase;
         white-space: nowrap;
-        color: rgba(255, 255, 255, 0.65);
+        color: rgba(255, 255, 255, 0.5);
         transition:
           color 0.25s ease,
           text-shadow 0.25s ease;
