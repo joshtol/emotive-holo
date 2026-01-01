@@ -299,7 +299,7 @@ export class SideMenu {
         }
 
         .side-menu-column.left {
-          left: calc(var(--layout-center-x, 50%) - 160px);
+          left: calc(var(--layout-center-x, 50%) - 180px);
         }
 
         .side-menu-column.left .side-menu-item {
@@ -307,7 +307,7 @@ export class SideMenu {
         }
 
         .side-menu-column.right {
-          right: calc(100% - var(--layout-center-x, 50%) - 160px);
+          right: calc(100% - var(--layout-center-x, 50%) - 180px);
         }
 
         .side-menu-column.right .side-menu-item {

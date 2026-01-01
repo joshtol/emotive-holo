@@ -335,7 +335,7 @@ body {
   left: var(--layout-center-x);
   transform: translateX(-50%) translateY(50%);
   /* Bottom position set dynamically by carousel.js */
-  bottom: 42%;
+  bottom: 38%;
   z-index: 100;
   text-align: center;
   pointer-events: none;

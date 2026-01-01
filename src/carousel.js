@@ -208,8 +208,8 @@ export class GeometryCarousel {
     // On mobile, the scene is pushed down relative to what DevTools shows
     // Use more conservative values that work across real devices
     // These values position the title in the gap between mascot and emitter
-    const mascotBottom = isMobile ? 0.48 : 0.50; // % from top (mascot bottom edge)
-    const emitterTop = isMobile ? 0.62 : 0.65;   // % from top (emitter top edge)
+    const mascotBottom = isMobile ? 0.53 : 0.50; // % from top (mascot bottom edge)
+    const emitterTop = isMobile ? 0.67 : 0.65;   // % from top (emitter top edge)
     const titleCenter = (mascotBottom + emitterTop) / 2;
 
     // Convert to bottom percentage using visual viewport
