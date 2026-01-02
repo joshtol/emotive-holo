@@ -11,15 +11,45 @@
 
 import { CarouselAudio } from './audio/carousel-audio.js';
 
+// Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
+const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
+
+// Emotion configurations for mood mode
+// Left side: positive emotions, Right side: negative/intense emotions
+const MOOD_LEFT_ITEMS = [
+  { id: 'neutral', label: 'NEUTRAL', svg: `${BASE_PATH}/assets/emotions/neutral.svg` },
+  { id: 'joy', label: 'JOY', svg: `${BASE_PATH}/assets/emotions/joy.svg` },
+  { id: 'love', label: 'LOVE', svg: `${BASE_PATH}/assets/emotions/love.svg` },
+  { id: 'excited', label: 'EXCITED', svg: `${BASE_PATH}/assets/emotions/excited.svg` },
+  { id: 'calm', label: 'CALM', svg: `${BASE_PATH}/assets/emotions/calm.svg` },
+  { id: 'euphoria', label: 'EUPHORIA', svg: `${BASE_PATH}/assets/emotions/euphoria.svg` }
+];
+
+const MOOD_RIGHT_ITEMS = [
+  { id: 'surprise', label: 'SURPRISE', svg: `${BASE_PATH}/assets/emotions/surprise.svg` },
+  { id: 'fear', label: 'FEAR', svg: `${BASE_PATH}/assets/emotions/fear.svg` },
+  { id: 'sadness', label: 'SADNESS', svg: `${BASE_PATH}/assets/emotions/sadness.svg` },
+  { id: 'disgust', label: 'DISGUST', svg: `${BASE_PATH}/assets/emotions/disgust.svg` },
+  { id: 'anger', label: 'ANGER', svg: `${BASE_PATH}/assets/emotions/anger.svg` },
+  { id: 'glitch', label: 'GLITCH', svg: `${BASE_PATH}/assets/emotions/glitch.svg` }
+];
+
 export class SideMenu {
   constructor(options = {}) {
     this.onSelect = options.onSelect || (() => {});
+    this.onMoodSelect = options.onMoodSelect || (() => {});
+    this.onMoodModeChange = options.onMoodModeChange || (() => {});
     this.onOpen = options.onOpen || (() => {});
     this.onClose = options.onClose || (() => {});
     this.layoutScaler = options.layoutScaler;
 
     this.isOpen = false;
     this.selectedItem = null;
+    this.isMoodMode = false;
+
+    // Initial scroll position for mood carousels
+    this.leftCarouselIndex = 0;
+    this.rightCarouselIndex = 0;
 
     // Menu items configuration (3 per side, icon above label)
     this.leftItems = [
@@ -291,6 +321,151 @@ export class SideMenu {
         color: rgba(180, 220, 255, 1);
       }
 
+      /* ═══════════════════════════════════════════════════════════════
+         MOOD MODE - Vertical carousel with emotion SVG buttons
+         Uses native CSS scroll-snap for smooth momentum scrolling
+         ═══════════════════════════════════════════════════════════════ */
+      .side-menu-column.mood-mode {
+        gap: 0;
+        padding: 0;
+        top: 38%;  /* Keep original position away from mascot */
+      }
+
+      .mood-carousel-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+
+        /* Native scroll with snap - smooth momentum on all devices */
+        max-height: 280px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scroll-snap-type: y mandatory;
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch;  /* iOS momentum */
+        overscroll-behavior: contain;  /* Prevent scroll chaining */
+
+        /* Hide scrollbar but keep functionality */
+        scrollbar-width: none;  /* Firefox */
+        -ms-overflow-style: none;  /* IE/Edge */
+
+        /* Smooth fade at edges */
+        mask-image: linear-gradient(
+          to bottom,
+          transparent 0%,
+          black 15%,
+          black 85%,
+          transparent 100%
+        );
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          transparent 0%,
+          black 15%,
+          black 85%,
+          transparent 100%
+        );
+
+        pointer-events: auto;
+        padding: 0.5rem 0;
+      }
+
+      .mood-carousel-wrapper::-webkit-scrollbar {
+        display: none;  /* Chrome/Safari */
+      }
+
+      .side-menu-column.left .mood-carousel-wrapper {
+        align-items: flex-start;
+        margin-left: 0;
+      }
+
+      .side-menu-column.right .mood-carousel-wrapper {
+        align-items: flex-end;
+        margin-right: 0.5rem;
+      }
+
+      .side-menu-mood-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.75rem 1.25rem;
+        cursor: pointer;
+        pointer-events: auto;
+        opacity: 0;
+        transform: scale(0.85);
+        flex-shrink: 0;  /* Don't compress items */
+        scroll-snap-align: center;  /* Snap to center */
+        scroll-snap-stop: normal;  /* Allow fast scrolling */
+        transition:
+          opacity 0.2s cubic-bezier(0.25, 0.1, 0.25, 1),
+          transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        /* Ensure minimum touch target size (44px recommended) */
+        min-height: 44px;
+        min-width: 44px;
+      }
+
+      .side-menu-column.left .side-menu-mood-item {
+        margin-left: 0;
+      }
+
+      .side-menu-column.right .side-menu-mood-item {
+        margin-right: 0;
+      }
+
+      .side-menu-mood-item.visible {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      .side-menu-mood-item:hover {
+        transform: scale(1.1);
+      }
+
+      .side-menu-mood-item:active {
+        transform: scale(0.95);
+      }
+
+      .side-menu-mood-item.selected {
+        transform: scale(1.05);
+      }
+
+      .side-menu-mood-item.selected .mood-icon {
+        filter: drop-shadow(0 0 12px rgba(255, 220, 100, 0.8));
+      }
+
+      .mood-icon {
+        width: 56px;
+        height: 56px;
+        transition: filter 0.25s ease, transform 0.25s ease;
+        filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.3));
+      }
+
+      .side-menu-mood-item:hover .mood-icon {
+        filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6));
+      }
+
+      .mood-label {
+        font-size: 0.65rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.6);
+        text-align: center;
+        white-space: nowrap;
+        transition: color 0.25s ease;
+      }
+
+      .side-menu-mood-item:hover .mood-label {
+        color: rgba(255, 255, 255, 0.9);
+      }
+
+      .side-menu-mood-item.selected .mood-label {
+        color: rgba(255, 220, 150, 1);
+        text-shadow: 0 0 8px rgba(255, 200, 100, 0.5);
+      }
+
       /* Mobile */
       @media (max-width: 768px) {
         .side-menu-column {
@@ -334,6 +509,45 @@ export class SideMenu {
           font-size: 1.25rem;
           top: 1rem;
           right: 1rem;
+        }
+
+        /* Mood mode mobile adjustments */
+        .side-menu-column.mood-mode {
+          gap: 0;
+          top: 38%;
+        }
+
+        .mood-carousel-wrapper {
+          max-height: 240px;
+        }
+
+        .side-menu-column.left .mood-carousel-wrapper {
+          margin-left: 0;
+        }
+
+        .side-menu-column.right .mood-carousel-wrapper {
+          margin-right: 0.25rem;
+        }
+
+        .mood-icon {
+          width: 48px;
+          height: 48px;
+        }
+
+        .mood-label {
+          font-size: 0.55rem;
+        }
+
+        .side-menu-mood-item {
+          padding: 0.6rem 1rem;
+        }
+
+        .side-menu-column.left .side-menu-mood-item {
+          margin-left: 0;
+        }
+
+        .side-menu-column.right .side-menu-mood-item {
+          margin-right: 0;
         }
       }
     `;
@@ -405,17 +619,23 @@ export class SideMenu {
       this.toggle();
     });
 
-    // Menu item clicks
+    // Menu item clicks (handles regular items and mood items)
     this.container.addEventListener('click', (e) => {
+      const moodItem = e.target.closest('.side-menu-mood-item');
+      if (moodItem) {
+        this._handleMoodClick(moodItem);
+        return;
+      }
+
       const item = e.target.closest('.side-menu-item');
       if (item) {
         this._handleItemClick(item);
       }
     });
 
-    // Menu item hovers
+    // Menu item hovers (handles both regular and mood items)
     this.container.addEventListener('mouseenter', (e) => {
-      const item = e.target.closest('.side-menu-item');
+      const item = e.target.closest('.side-menu-item, .side-menu-mood-item');
       if (item) {
         this.audio.resume();
         this.audio.playHoverStart(parseInt(item.dataset.index));
@@ -534,13 +754,24 @@ export class SideMenu {
     this.audio.resume();
     this.audio.playCloseSound();
 
-    // Animate items out
-    const items = this.container.querySelectorAll('.side-menu-item');
+    // Animate items out (both regular and mood items)
+    const items = this.container.querySelectorAll('.side-menu-item, .side-menu-mood-item');
     items.forEach((item) => {
       item.classList.remove('visible', 'selected');
     });
 
     this.selectedItem = null;
+
+    // Exit mood mode if active (restore normal menu for next open)
+    if (this.isMoodMode) {
+      this.isMoodMode = false;
+      this.leftColumn.classList.remove('mood-mode');
+      this.rightColumn.classList.remove('mood-mode');
+      // Notify parent to lower mascot and hide holo text
+      this.onMoodModeChange(false);
+      // Re-render to restore normal menu items
+      this._renderColumns();
+    }
 
     // Notify parent
     this.onClose();
@@ -550,7 +781,7 @@ export class SideMenu {
    * Clear selection
    */
   clearSelection() {
-    this.container.querySelectorAll('.side-menu-item').forEach(el => {
+    this.container.querySelectorAll('.side-menu-item, .side-menu-mood-item').forEach(el => {
       el.classList.remove('selected');
     });
     this.selectedItem = null;
@@ -563,6 +794,166 @@ export class SideMenu {
   updateLayout() {
     // CSS handles positioning via var(--layout-center-x)
     // This method kept for API compatibility
+  }
+
+  /**
+   * Enter or exit mood selection mode
+   * In mood mode, menu items are replaced with emotion SVG buttons in vertical carousels
+   * @param {boolean} enabled - Whether to enable mood mode
+   */
+  setMoodMode(enabled) {
+    if (this.isMoodMode === enabled) return;
+    this.isMoodMode = enabled;
+
+    // Reset carousel positions when entering mood mode
+    if (enabled) {
+      this.leftCarouselIndex = 1;  // Start with second item centered (shows 0,1,2)
+      this.rightCarouselIndex = 1;
+    }
+
+    // Notify parent (for mascot raise animation)
+    this.onMoodModeChange(enabled);
+
+    // Clear any selections
+    this.clearSelection();
+
+    // Animate out current items
+    const currentItems = this.container.querySelectorAll('.side-menu-item, .side-menu-mood-item');
+    currentItems.forEach(item => {
+      item.classList.remove('visible');
+    });
+
+    // Wait for animation, then swap content
+    setTimeout(() => {
+      this._renderColumns();
+
+      // Add or remove mood-mode class
+      if (enabled) {
+        this.leftColumn.classList.add('mood-mode');
+        this.rightColumn.classList.add('mood-mode');
+      } else {
+        this.leftColumn.classList.remove('mood-mode');
+        this.rightColumn.classList.remove('mood-mode');
+      }
+
+      // Animate in new items with stagger
+      const newItems = this.container.querySelectorAll('.side-menu-item, .side-menu-mood-item');
+      newItems.forEach((item, i) => {
+        setTimeout(() => {
+          item.classList.add('visible');
+        }, i * 50);
+      });
+    }, 200);
+  }
+
+  /**
+   * Re-render column contents based on current mode
+   */
+  _renderColumns() {
+    // Clear columns
+    this.leftColumn.innerHTML = '';
+    this.rightColumn.innerHTML = '';
+
+    if (this.isMoodMode) {
+      // Render mood carousel with 3 visible items per side
+      this._renderMoodCarousel('left', MOOD_LEFT_ITEMS, this.leftCarouselIndex, this.leftColumn);
+      this._renderMoodCarousel('right', MOOD_RIGHT_ITEMS, this.rightCarouselIndex, this.rightColumn);
+    } else {
+      // Render regular menu items
+      this.leftItems.forEach((item, index) => {
+        const el = this._createMenuItem(item, index, 'left');
+        this.leftColumn.appendChild(el);
+      });
+
+      this.rightItems.forEach((item, index) => {
+        const el = this._createMenuItem(item, index, 'right');
+        this.rightColumn.appendChild(el);
+      });
+    }
+  }
+
+  /**
+   * Render a mood carousel with all items (native scroll-snap handles visibility)
+   * @param {string} side - 'left' or 'right'
+   * @param {Array} items - Array of mood items
+   * @param {number} initialIndex - Index to scroll to initially
+   * @param {HTMLElement} column - Column element to render into
+   */
+  _renderMoodCarousel(side, items, initialIndex, column) {
+    // Create a scrollable wrapper for all carousel items
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mood-carousel-wrapper';
+    wrapper.dataset.side = side;
+
+    // Render ALL items - native scroll handles visibility
+    items.forEach((item, i) => {
+      const el = this._createMoodItem(item, i, side);
+      wrapper.appendChild(el);
+    });
+
+    column.appendChild(wrapper);
+
+    // Scroll to initial position after render
+    requestAnimationFrame(() => {
+      const targetItem = wrapper.children[initialIndex];
+      if (targetItem) {
+        targetItem.scrollIntoView({ block: 'center', behavior: 'instant' });
+      }
+    });
+  }
+
+  /**
+   * Create a mood item element with SVG icon
+   * @param {Object} item - Mood item config { id, label, svg }
+   * @param {number} index - Item index
+   * @param {string} side - 'left' or 'right'
+   * @returns {HTMLElement}
+   */
+  _createMoodItem(item, index, side) {
+    const el = document.createElement('div');
+    el.className = 'side-menu-mood-item';
+    el.dataset.id = item.id;
+    el.dataset.index = index;
+    el.dataset.side = side;
+    el.dataset.mood = 'true';
+
+    el.innerHTML = `
+      <img class="mood-icon" src="${item.svg}" alt="${item.label}" />
+      <span class="mood-label">${item.label}</span>
+    `;
+
+    return el;
+  }
+
+  /**
+   * Handle mood item click
+   * @param {HTMLElement} itemEl - Clicked element
+   */
+  _handleMoodClick(itemEl) {
+    const id = itemEl.dataset.id;
+    const index = parseInt(itemEl.dataset.index);
+    const side = itemEl.dataset.side;
+    const items = side === 'left' ? MOOD_LEFT_ITEMS : MOOD_RIGHT_ITEMS;
+
+    // Update selection visual
+    this.container.querySelectorAll('.side-menu-mood-item').forEach(el => {
+      el.classList.remove('selected');
+    });
+    itemEl.classList.add('selected');
+
+    // Play selection sound
+    this.audio.resume();
+    this.audio.playSelectionChime(index);
+
+    // Scroll to center the selected item smoothly
+    itemEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+    // Get the label for the selected mood
+    const moodItem = items.find(m => m.id === id);
+    const label = moodItem ? moodItem.label : id.toUpperCase();
+
+    // Callback with mood selection (include label for holo title)
+    this.onMoodSelect(id, label);
   }
 
   /**

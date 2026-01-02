@@ -14,8 +14,15 @@ export class ElevenLabsTTS {
     this.isSpeaking = false;
     this.currentAudio = null; // Track current audio for cancellation
 
+    // BYOK (Bring Your Own Key) - direct API calls from browser
+    this._apiKey = null;
+    this._useDirectApi = false;
+
     // Progress tracking callback
     this.onProgress = null; // (progress: 0-1) => void
+
+    // Character position callback for StoryDirector
+    this.onCharPosition = null; // (charIndex: number) => void
 
     // Chunk-based CC-style text display
     // Shows a chunk of text, waits for TTS to catch up, then advances
@@ -23,6 +30,16 @@ export class ElevenLabsTTS {
     this._chunks = [];
     this._currentChunkIndex = 0;
     this._wordsPerChunk = 12; // ~2-3 lines worth of text
+  }
+
+  /**
+   * Set API key for direct ElevenLabs API calls (BYOK mode)
+   * @param {string} apiKey - ElevenLabs API key
+   */
+  setApiKey(apiKey) {
+    this._apiKey = apiKey;
+    this._useDirectApi = !!apiKey;
+    console.log('ElevenLabs BYOK mode:', this._useDirectApi ? 'enabled' : 'disabled');
   }
 
   /**
@@ -54,20 +71,43 @@ export class ElevenLabsTTS {
         this.onChunkChange(this._chunks[0], 0, this._chunks.length);
       }
 
-      // Fetch audio from ElevenLabs via backend
-      const response = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text,
-          voiceId: this.voiceId
-        })
-      });
+      // Fetch audio - either direct API (BYOK) or via backend proxy
+      let response;
+
+      if (this._useDirectApi && this._apiKey) {
+        // Direct ElevenLabs API call (BYOK mode)
+        response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'xi-api-key': this._apiKey
+          },
+          body: JSON.stringify({
+            text,
+            model_id: 'eleven_turbo_v2_5',
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75
+            }
+          })
+        });
+      } else {
+        // Backend proxy (uses server's API key)
+        response = await fetch(this.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            text,
+            voiceId: this.voiceId
+          })
+        });
+      }
 
       if (!response.ok) {
-        throw new Error('TTS request failed');
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`TTS request failed: ${errorText}`);
       }
 
       const audioBlob = await response.blob();

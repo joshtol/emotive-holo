@@ -20,6 +20,11 @@ export const COLORS = {
   dimGray: 'rgba(255, 255, 255, 0.4)'
 };
 
+// Shared state across all panels - tracks if mascot is already raised
+let _mascotIsRaised = false;
+let _sharedOriginalTargetY = undefined;
+let _activeFloatAnimationId = null;
+
 export class MenuPanel {
   /**
    * @param {Object} options
@@ -54,10 +59,6 @@ export class MenuPanel {
 
     // DOM element for floating title
     this.titleElement = document.getElementById('panel-title');
-
-    // Animation state
-    this._originalTargetY = undefined;
-    this._floatAnimationId = null;
   }
 
   /**
@@ -66,8 +67,8 @@ export class MenuPanel {
   show() {
     this.isVisible = true;
 
-    // Float mascot up during panel view
-    this._animateMascotFloat(true);
+    // Float mascot up (will be ignored if already raised)
+    animateMascotFloat(this.mascot, true);
 
     // Show and update floating title
     this._showTitle();
@@ -85,8 +86,8 @@ export class MenuPanel {
   hide() {
     this.isVisible = false;
 
-    // Float mascot back down
-    this._animateMascotFloat(false);
+    // Float mascot back down (will be ignored if not raised)
+    animateMascotFloat(this.mascot, false);
 
     // Hide floating title
     this._hideTitle();
@@ -124,8 +125,27 @@ export class MenuPanel {
       titleName.textContent = this.title.toUpperCase();
     }
 
+    // Clear subtitle by default
+    const titleSubtitle = this.titleElement.querySelector('.title-subtitle');
+    if (titleSubtitle) {
+      titleSubtitle.textContent = '';
+    }
+
     // Show the element
     this.titleElement.classList.remove('hidden');
+  }
+
+  /**
+   * Update the floating title subtitle text
+   * @param {string} subtitle - Subtitle text (empty to hide)
+   */
+  setTitleSubtitle(subtitle) {
+    if (!this.titleElement) return;
+
+    const titleSubtitle = this.titleElement.querySelector('.title-subtitle');
+    if (titleSubtitle) {
+      titleSubtitle.textContent = subtitle || '';
+    }
   }
 
   /**
@@ -158,51 +178,6 @@ export class MenuPanel {
 
     this.titleElement.style.bottom = `${bottomPercent}%`;
     this.titleElement.style.top = 'auto';
-  }
-
-  /**
-   * Animate mascot floating up or back down
-   * @param {boolean} up - True to float up, false to return to normal
-   */
-  _animateMascotFloat(up) {
-    const controls = this.mascot?.core3D?.renderer?.controls;
-    if (!controls) return;
-
-    // Store original target Y on first call
-    if (this._originalTargetY === undefined) {
-      this._originalTargetY = controls.target.y;
-    }
-
-    // Float offset - how much higher to raise during selection
-    const floatOffset = 0.15;
-    const targetY = up ? this._originalTargetY - floatOffset : this._originalTargetY;
-    const startY = controls.target.y;
-    const duration = 400; // ms
-    const startTime = performance.now();
-
-    // Cancel any existing animation
-    if (this._floatAnimationId) {
-      cancelAnimationFrame(this._floatAnimationId);
-    }
-
-    const animate = () => {
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      // Ease out cubic for smooth deceleration
-      const eased = 1 - Math.pow(1 - progress, 3);
-
-      controls.target.y = startY + (targetY - startY) * eased;
-      controls.update();
-
-      if (progress < 1) {
-        this._floatAnimationId = requestAnimationFrame(animate);
-      } else {
-        this._floatAnimationId = null;
-      }
-    };
-
-    animate();
   }
 
   /**
@@ -569,6 +544,70 @@ export class MenuPanel {
     this.holoPhone = null;
     this.emitterBase = null;
   }
+}
+
+/**
+ * Shared mascot float animation - use this from carousel too
+ * @param {Object} mascot - The mascot instance
+ * @param {boolean} up - True to float up, false to return to normal
+ */
+export function animateMascotFloat(mascot, up) {
+  const controls = mascot?.core3D?.renderer?.controls;
+  if (!controls) return;
+
+  // If raising and already raised, do nothing
+  if (up && _mascotIsRaised) {
+    return;
+  }
+
+  // If lowering and not raised, do nothing
+  if (!up && !_mascotIsRaised) {
+    return;
+  }
+
+  // Cancel any existing animation (shared across all panels)
+  if (_activeFloatAnimationId) {
+    cancelAnimationFrame(_activeFloatAnimationId);
+    _activeFloatAnimationId = null;
+  }
+
+  // Capture baseline Y when first raising (before any animation)
+  if (up && _sharedOriginalTargetY === undefined) {
+    _sharedOriginalTargetY = controls.target.y;
+  }
+
+  // Float offset - how much higher to raise during selection
+  const floatOffset = 0.15;
+  const targetY = up ? _sharedOriginalTargetY - floatOffset : _sharedOriginalTargetY;
+  const startY = controls.target.y;
+  const duration = 400; // ms
+  const startTime = performance.now();
+
+  // Update shared state immediately
+  _mascotIsRaised = up;
+
+  const animate = () => {
+    const elapsed = performance.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    // Ease out cubic for smooth deceleration
+    const eased = 1 - Math.pow(1 - progress, 3);
+
+    controls.target.y = startY + (targetY - startY) * eased;
+    controls.update();
+
+    if (progress < 1) {
+      _activeFloatAnimationId = requestAnimationFrame(animate);
+    } else {
+      _activeFloatAnimationId = null;
+      // Reset shared original Y after lowering completes
+      if (!up) {
+        _sharedOriginalTargetY = undefined;
+      }
+    }
+  };
+
+  animate();
 }
 
 export default MenuPanel;

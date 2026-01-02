@@ -5,6 +5,7 @@
  */
 
 import { animateMoonPhase } from '@joshtol/emotive-engine/3d';
+import { animateMascotFloat } from './panels/menu-panel.js';
 
 export class GeometryCarousel {
   constructor(mascot, container, holoPhone) {
@@ -332,47 +333,11 @@ export class GeometryCarousel {
 
   /**
    * Animate mascot floating up (for selection) or down (to normal)
+   * Uses shared animation state from menu-panel to prevent conflicts
    * @param {boolean} up - True to float up, false to return to normal
    */
   _animateMascotFloat(up) {
-    const controls = this.mascot?.core3D?.renderer?.controls;
-    if (!controls) return;
-
-    // Store original target Y on first call
-    if (this._originalTargetY === undefined) {
-      this._originalTargetY = controls.target.y;
-    }
-
-    // Float offset - how much higher to raise during selection
-    const floatOffset = 0.15;
-    const targetY = up ? this._originalTargetY - floatOffset : this._originalTargetY;
-    const startY = controls.target.y;
-    const duration = 400; // ms
-    const startTime = performance.now();
-
-    // Cancel any existing animation
-    if (this._floatAnimationId) {
-      cancelAnimationFrame(this._floatAnimationId);
-    }
-
-    const animate = () => {
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      // Ease out cubic for smooth deceleration
-      const eased = 1 - Math.pow(1 - progress, 3);
-
-      controls.target.y = startY + (targetY - startY) * eased;
-      controls.update();
-
-      if (progress < 1) {
-        this._floatAnimationId = requestAnimationFrame(animate);
-      } else {
-        this._floatAnimationId = null;
-      }
-    };
-
-    animate();
+    animateMascotFloat(this.mascot, up);
   }
 
   /**

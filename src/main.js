@@ -21,6 +21,11 @@ import { StoryDirector } from './story-director.js';
 import { TutorialController } from './tutorial.js';
 import { EffectsPanel } from './panels/effects-panel.js';
 import { MeditatePanel } from './panels/meditate-panel.js';
+import { StoriesPanel } from './panels/stories-panel.js';
+import { SettingsPanel, STORAGE_KEYS } from './panels/settings-panel.js';
+import { MusicPanel } from './panels/music-panel.js';
+import { animateMascotFloat } from './panels/menu-panel.js';
+import { ElevenLabsTTS } from './elevenlabs-tts.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
@@ -53,8 +58,15 @@ class EmoAssistant {
     this.carousel = null;
     this.effectsPanel = null;
     this.meditatePanel = null;
+    this.storiesPanel = null;
+    this.settingsPanel = null;
+    this.musicPanel = null;
     this.storyDirector = null;
     this.tutorial = null;
+
+    // TTS instances (native and elevenlabs)
+    this.nativeTTS = null;
+    this.elevenLabsTTS = null;
 
     // DOM elements
     this.elements = {
@@ -272,6 +284,26 @@ class EmoAssistant {
           console.log('Side menu selected:', menuId);
           this._handleSideMenuSelect(menuId);
         },
+        onMoodSelect: (moodId, moodLabel) => {
+          console.log('Mood selected:', moodId, moodLabel);
+          this._handleMoodSelect(moodId, moodLabel);
+        },
+        onMoodModeChange: (enabled) => {
+          console.log('Mood mode changed:', enabled);
+          // Raise/lower mascot when entering/exiting mood mode
+          animateMascotFloat(this.mascot, enabled);
+
+          if (enabled) {
+            // Show "MOODS" title when entering mood mode
+            this._showMoodTitle('MOODS');
+          } else {
+            // Hide mood title when exiting mood mode
+            const panelTitle = document.getElementById('panel-title');
+            if (panelTitle) {
+              panelTitle.classList.add('hidden');
+            }
+          }
+        },
         onOpen: () => {
           this.setState('menu');
           this.mascot.feel('calm, attentive');
@@ -380,7 +412,14 @@ class EmoAssistant {
     // Initialize modules
     this.voiceInput = new VoiceInput();
     this.claude = new ClaudeClient();
-    this.tts = new NativeTTS(this.mascot);
+
+    // Initialize both TTS engines
+    this.nativeTTS = new NativeTTS(this.mascot);
+    this.elevenLabsTTS = new ElevenLabsTTS(this.mascot);
+
+    // Check for saved TTS preference and API key
+    this._initTTS();
+
     // Pass holoPhone3D to meditation so it can update the display
     this.meditation = new MeditationController(this.mascot, this.tts, this.elements, this.holoPhone3D);
     // Pass holoPhone3D to carousel so it can render on the phone screen
@@ -430,6 +469,65 @@ class EmoAssistant {
     // StoryDirector for inline story directives
     this.storyDirector = new StoryDirector(this.mascot);
 
+    // Stories panel for narrative selection
+    this.storiesPanel = new StoriesPanel({
+      holoPhone: this.holoPhone3D,
+      mascot: this.mascot,
+      storyDirector: this.storyDirector,
+      tts: this.tts,
+      onClose: () => {
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();
+      },
+      onConfirm: (data) => {
+        console.log('Story selected:', data);
+        // Start the selected story
+        this._startStory(data);
+      },
+      onChange: (state) => {
+        console.log('Story selection changed:', state);
+      }
+    });
+
+    // Settings panel for TTS configuration and API keys
+    this.settingsPanel = new SettingsPanel({
+      holoPhone: this.holoPhone3D,
+      mascot: this.mascot,
+      onClose: () => {
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();
+      },
+      onConfirm: (state) => {
+        console.log('Settings confirmed:', state);
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();
+      },
+      onSettingsChange: (settings) => {
+        console.log('Settings changed:', settings);
+        this._handleTTSSettingsChange(settings);
+      }
+    });
+
+    // Music panel for background music selection
+    this.musicPanel = new MusicPanel({
+      holoPhone: this.holoPhone3D,
+      mascot: this.mascot,
+      onClose: () => {
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();
+      },
+      onConfirm: (data) => {
+        console.log('Music confirmed:', data);
+        this.setState('idle');
+        this.resetScreen();
+        this.sideMenu.close();
+      }
+    });
+
     // Wire up carousel state change to sync main state
     this.carousel.onStateChange = (carouselState) => {
       if (carouselState === 'carousel') {
@@ -455,33 +553,7 @@ class EmoAssistant {
       }
     };
 
-    // Wire up TTS progress tracking - update 3D phone progress bar
-    this.tts.onProgress = (progress) => {
-      if (this.holoPhone3D) {
-        this.holoPhone3D.setProgress(progress);
-      }
-    };
-
-    // Wire up TTS character position to StoryDirector for inline directives
-    this.tts.onCharPosition = (charIndex) => {
-      if (this.storyDirector) {
-        this.storyDirector.updateProgress(charIndex);
-      }
-    };
-
-    // Wire up CC-style chunk display - shows 2-3 lines, advances when TTS catches up
-    this.tts.onChunkChange = (chunkText) => {
-      if (this.state === 'speaking') {
-        // Update 3D phone display with current chunk
-        if (this.holoPhone3D) {
-          this.holoPhone3D.setText(chunkText);
-        }
-        // Also update CSS phone as fallback
-        if (this.elements.screenText) {
-          this.elements.screenText.textContent = chunkText;
-        }
-      }
-    };
+    // TTS callbacks are wired in _initTTS() which is called during module init
 
     // Setup event listeners
     this.setupEventListeners();
@@ -1169,9 +1241,9 @@ class EmoAssistant {
       this.elements.carouselTitle.classList.remove('hidden');
     }
 
-    // Show hamburger menu button
+    // Hide hamburger menu during carousel (it's only for side menu)
     if (this.sideMenu) {
-      this.sideMenu.showHamburger();
+      this.sideMenu.hideHamburger();
     }
   }
 
@@ -1235,19 +1307,22 @@ class EmoAssistant {
   _handleSideMenuSelect(menuId) {
     console.log('Side menu action:', menuId);
 
-    // Keep menu open for panel states, close for others
-    const keepMenuOpen = ['effects', 'settings', 'moods', 'music'].includes(menuId);
+    // Keep menu open for all panel states (effects, meditate, stories, etc.)
+    // Only close for non-panel actions like music playback
+    const keepMenuOpen = ['effects', 'settings', 'moods', 'music', 'meditate', 'stories'].includes(menuId);
     if (!keepMenuOpen) {
       this.sideMenu.close();
     }
 
+    // Hide any currently visible panel before showing a new one
+    this._hideAllPanels();
+
     switch (menuId) {
       case 'music':
-        // TODO: Open music sub-menu with track selection
-        this.setState('idle');
-        this.setScreen('Music coming soon!', '');
-        this.mascot.feel('joy, bounce');
-        this.scheduleScreenRevert();
+        // Open music panel for track selection
+        this.setState('panel');
+        this.mascot.feel('calm, attentive');
+        this.musicPanel.show();
         break;
 
       case 'meditate':
@@ -1265,32 +1340,77 @@ class EmoAssistant {
         break;
 
       case 'settings':
-        // TODO: Open settings panel (volume, voice, API key)
-        this.setState('idle');
-        this.setScreen('Settings coming soon!', '');
-        this.mascot.feel('focused, nod');
-        this.scheduleScreenRevert();
+        // Open settings panel for TTS configuration
+        this.setState('panel');
+        this.mascot.feel('focused, attentive');
+        this.settingsPanel.show();
         break;
 
       case 'moods':
-        // TODO: Quick emotion presets
-        this.setState('idle');
-        this.setScreen('Moods coming soon!', '');
-        this.mascot.feel('love, pulse');
-        this.scheduleScreenRevert();
+        // Enter mood selection mode - replace menu items with emotion SVGs
+        this.sideMenu.setMoodMode(true);
+        this.mascot.feel('calm, attentive');
         break;
 
       case 'stories':
-        // TODO: Narrative demos with StoryDirector
-        this.setState('idle');
-        this.setScreen('Stories coming soon!', '');
-        this.mascot.feel('surprise, expand');
-        this.scheduleScreenRevert();
+        // Show stories panel for narrative selection
+        this.setState('panel');
+        this.storiesPanel.show();
         break;
 
       default:
         this.setState('idle');
         this.resetScreen();
+    }
+  }
+
+  /**
+   * Handle mood selection from mood mode
+   * @param {string} moodId - Emotion ID (neutral, joy, love, etc.)
+   * @param {string} moodLabel - Display label for the mood
+   */
+  _handleMoodSelect(moodId, moodLabel) {
+    console.log('Applying mood:', moodId, moodLabel);
+
+    // Apply the selected emotion to the mascot
+    this.mascot.feel(moodId);
+
+    // Mark as user-requested so it persists
+    this._userRequestedEmotion = true;
+
+    // Show the mood name in the holo title
+    this._showMoodTitle(moodLabel || moodId.toUpperCase());
+
+    // Keep menu open - user can tap X to close when done exploring moods
+  }
+
+  /**
+   * Show the selected mood name in the floating holo title
+   * @param {string} moodName - The mood name to display
+   */
+  _showMoodTitle(moodName) {
+    const panelTitle = document.getElementById('panel-title');
+    const titleName = panelTitle?.querySelector('.title-name');
+    const titleSubtitle = panelTitle?.querySelector('.title-subtitle');
+
+    if (panelTitle && titleName) {
+      // Set the mood name
+      titleName.textContent = moodName;
+
+      // Clear subtitle
+      if (titleSubtitle) {
+        titleSubtitle.textContent = '';
+      }
+
+      // Hide music controls if visible
+      panelTitle.classList.remove('music-mode');
+      const musicControls = panelTitle.querySelector('.music-controls');
+      if (musicControls) {
+        musicControls.classList.add('hidden');
+      }
+
+      // Show the title
+      panelTitle.classList.remove('hidden');
     }
   }
 
@@ -1575,6 +1695,82 @@ class EmoAssistant {
   }
 
   /**
+   * Start a story with StoryDirector
+   * @param {Object} data - Story selection data from StoriesPanel
+   */
+  _startStory(data) {
+    // Close side menu
+    this.sideMenu.close();
+
+    // Get story content based on ID
+    const storyContent = this._getStoryContent(data.storyId);
+
+    if (!storyContent) {
+      console.warn(`Story not found: ${data.storyId}`);
+      this.setState('idle');
+      this.setScreen('Story coming soon!', '');
+      this.scheduleScreenRevert();
+      return;
+    }
+
+    // Parse story with StoryDirector to extract directives
+    const cleanText = this.storyDirector.parse(storyContent);
+
+    // Start speaking the story
+    this.setState('speaking');
+    this.setScreen(data.storyName, 'speaking');
+    this.mascot.feel('calm, gentle glow');
+
+    // Set up character position callback for syncing directives
+    if (this.tts.onCharPosition) {
+      this.tts.onCharPosition = (charPos) => {
+        this.storyDirector.updateProgress(charPos);
+      };
+    }
+
+    // Speak the clean text (directives stripped)
+    this.tts.speak(cleanText).then(() => {
+      // Trigger any remaining directives
+      this.storyDirector.triggerRemaining();
+      this.storyDirector.reset();
+
+      // Return to idle
+      this.setState('idle');
+      this.mascot.feel('calm, settle');
+      this.resetScreen();
+    });
+  }
+
+  /**
+   * Get story content by ID
+   * @param {string} storyId - Story identifier
+   * @returns {string|null} Story text with inline directives
+   */
+  _getStoryContent(storyId) {
+    // Story content with inline StoryDirector directives
+    // Each story showcases different engine capabilities: geometries, eclipses, phases, presets
+    // IMPORTANT: Every story must end with [MORPH:crystal][PRESET:quartz] to reset to neutral state
+    const stories = {
+      // Solar Journey: Sun geometry with eclipse effects
+      morning: `[MORPH:sun][SUNECLIPSE:off][FEEL:calm,settle][PRESET:citrine]The sun rises over distant mountains, pure and radiant. [FEEL:joy,glow][CHAIN:radiance]Golden light floods the world, warming everything it touches. [SUNECLIPSE:annular][FEEL:surprise,pulse]A shadow begins to cross the sun's face, creating a ring of fire in the sky. [FEEL:euphoria,expand]The corona blazes around the dark center, a halo of pure energy. [SUNECLIPSE:total][FEEL:calm,drift]For one breathless moment, day becomes night. Stars emerge. [CHAIN:twinkle]The universe reveals itself in the sun's shadow. [SUNECLIPSE:off][FEEL:joy,burst]And then the light returns, brilliant and triumphant. [MORPH:crystal][PRESET:quartz][FEEL:calm,settle]You carry this cosmic dance with you, light and shadow as one.`,
+
+      // Lunar Phases: Moon geometry with phases and blood moon
+      starfall: `[MORPH:moon][PHASE:new][FEEL:calm,settle][PRESET:sapphire]The night sky stretches infinite above you. [PHASE:waxing-crescent][FEEL:surprise,glow]A sliver of silver appears, the moon beginning its ancient journey. [CHAIN:rise][PHASE:first-quarter][FEEL:focused,pulse]Half illuminated, half in shadow, perfectly balanced. [PHASE:full][FEEL:euphoria,expand]The full moon bathes the world in ethereal light. [MOONECLIPSE:partial][CHAIN:drift]Earth's shadow begins to creep across the lunar surface. [MOONECLIPSE:total][FEEL:love,glow][PRESET:ruby]The blood moon rises, deep crimson against the stars. [FEEL:calm,drift]Ancient and powerful, it speaks of cycles older than time. [MOONECLIPSE:off][MORPH:crystal][PRESET:quartz][FEEL:calm,settle]The moon fades to a whisper, and you return to stillness.`,
+
+      // Transformation: Multiple geometry morphs with crystals
+      deep: `[MORPH:crystal][PRESET:sapphire][FEEL:calm,settle]You begin as still water, clear and deep. [CHAIN:flow]Currents of light move through you. [MORPH:star][FEEL:surprise,expand][CHAIN:twinkle]You scatter into points of light, countless and bright. [PRESET:quartz][MORPH:heart][FEEL:love,pulse][CHAIN:rhythm]You gather into a beating heart, warm and alive. [PRESET:ruby][FEEL:euphoria,burst]Love radiates outward in waves. [MORPH:sun][SUNECLIPSE:annular][FEEL:joy,glow][PRESET:citrine]You become pure light, a ring of fire. [CHAIN:radiance][SUNECLIPSE:off][MORPH:crystal][PRESET:quartz][FEEL:calm,settle]You crystallize once more, transformed. All forms live within you.`,
+
+      // Love Story: Heart geometry with emotional progression
+      heartbeat: `[MORPH:heart][FEEL:calm,pulse][PRESET:ruby]Feel the rhythm within you, ancient and true. [CHAIN:rhythm]Each beat echoes through the cosmos. [FEEL:love,glow]Warmth spreads through every fiber of your being. [MORPH:star][FEEL:euphoria,expand][CHAIN:burst][PRESET:amethyst]Your love explodes into infinite points of light. [FEEL:joy,twinkle]Each star carries a piece of your heart into the universe. [MORPH:moon][PHASE:full][FEEL:love,drift][PRESET:sapphire]The moon reflects your devotion back to you, soft and constant. [CHAIN:flow][MORPH:crystal][PRESET:quartz][FEEL:calm,settle]You return to center, carrying love in your crystalline heart.`,
+
+      // Crystal Dreams: All presets with geometry transitions
+      crystal: `[MORPH:crystal][PRESET:quartz][FEEL:calm,glow]Pure and clear, you float in crystalline light. [CHAIN:twinkle][PRESET:emerald][FEEL:joy,shimmer]You shift to verdant green, alive with forest energy. [PRESET:sapphire][FEEL:calm,drift]Deep blue envelops you, ocean depths of peace. [MORPH:moon][PHASE:waxing-gibbous][FEEL:surprise,expand]You become the moon, glowing silver and mysterious. [PRESET:amethyst][MORPH:crystal][FEEL:euphoria,pulse]Violet light pulses through you, wisdom and intuition. [CHAIN:spiral][PRESET:ruby][FEEL:love,glow]Crimson warmth fills your core. [MORPH:sun][SUNECLIPSE:off][PRESET:citrine][FEEL:joy,burst][CHAIN:radiance]You blaze with golden fire, pure radiant energy. [MORPH:crystal][PRESET:quartz][FEEL:calm,settle]You return to pure clarity, transformed by every color of light.`
+    };
+
+    return stories[storyId] || null;
+  }
+
+  /**
    * Convert screen coordinates to phone canvas coordinates using raycasting
    * Falls back to projected screen bounds if raycasting fails
    * @param {number} clientX - Screen X coordinate
@@ -1802,7 +1998,21 @@ class EmoAssistant {
   _getActivePanel() {
     if (this.effectsPanel?.isVisible) return this.effectsPanel;
     if (this.meditatePanel?.isVisible) return this.meditatePanel;
+    if (this.storiesPanel?.isVisible) return this.storiesPanel;
+    if (this.settingsPanel?.isVisible) return this.settingsPanel;
+    if (this.musicPanel?.isVisible) return this.musicPanel;
     return null;
+  }
+
+  /**
+   * Hide all panels - used when switching between panels
+   */
+  _hideAllPanels() {
+    if (this.effectsPanel?.isVisible) this.effectsPanel.hide();
+    if (this.meditatePanel?.isVisible) this.meditatePanel.hide();
+    if (this.storiesPanel?.isVisible) this.storiesPanel.hide();
+    if (this.settingsPanel?.isVisible) this.settingsPanel.hide();
+    if (this.musicPanel?.isVisible) this.musicPanel.hide();
   }
 
   // ==================== IDLE TOUCH HANDLING ====================
@@ -1948,6 +2158,112 @@ class EmoAssistant {
 
     document.body.appendChild(debug);
     console.log('Phone bounds debug overlay shown');
+  }
+
+  // ==================== TTS & LLM CONFIGURATION ====================
+
+  /**
+   * Initialize TTS and LLM based on saved preferences
+   */
+  _initTTS() {
+    // TTS Configuration
+    const savedProvider = localStorage.getItem(STORAGE_KEYS.ttsProvider) || 'browser';
+    const savedElevenLabsKey = localStorage.getItem(STORAGE_KEYS.elevenLabsApiKey) || '';
+
+    if (savedProvider === 'elevenlabs' && savedElevenLabsKey) {
+      // Use ElevenLabs with BYOK
+      this.elevenLabsTTS.setApiKey(savedElevenLabsKey);
+      this.tts = this.elevenLabsTTS;
+      console.log('TTS: Using ElevenLabs (BYOK)');
+    } else {
+      // Use native browser TTS
+      this.tts = this.nativeTTS;
+      console.log('TTS: Using browser native');
+    }
+
+    // Claude Configuration (BYOK)
+    const savedClaudeKey = localStorage.getItem(STORAGE_KEYS.claudeApiKey) || '';
+    const savedClaudeModel = localStorage.getItem(STORAGE_KEYS.claudeModel) || 'claude-3-haiku-20240307';
+    if (savedClaudeKey && this.claude) {
+      this.claude.setApiKey(savedClaudeKey);
+      this.claude.setModel(savedClaudeModel);
+      console.log('Claude: Using BYOK mode with model:', savedClaudeModel);
+    } else {
+      console.log('Claude: Using backend proxy');
+    }
+
+    // Wire up TTS callbacks
+    this._wireTTSCallbacks();
+  }
+
+  /**
+   * Handle settings change from SettingsPanel (TTS and Claude)
+   */
+  _handleTTSSettingsChange(settings) {
+    const { ttsProvider, elevenLabsApiKey, claudeApiKey, claudeModel } = settings;
+
+    // Update TTS
+    if (ttsProvider === 'elevenlabs' && elevenLabsApiKey) {
+      // Switch to ElevenLabs
+      this.elevenLabsTTS.setApiKey(elevenLabsApiKey);
+      this.tts = this.elevenLabsTTS;
+      console.log('TTS switched to: ElevenLabs (BYOK)');
+    } else {
+      // Switch to native browser TTS
+      this.tts = this.nativeTTS;
+      console.log('TTS switched to: Browser native');
+    }
+
+    // Update Claude
+    if (claudeApiKey && this.claude) {
+      this.claude.setApiKey(claudeApiKey);
+      if (claudeModel) {
+        this.claude.setModel(claudeModel);
+      }
+      console.log('Claude switched to: BYOK mode with model:', claudeModel);
+    } else if (this.claude) {
+      this.claude.setApiKey(null);  // Clear key, use proxy
+      console.log('Claude switched to: Backend proxy');
+    }
+
+    // Rewire callbacks to new TTS instance
+    this._wireTTSCallbacks();
+
+    // Update meditation controller with new TTS
+    if (this.meditation) {
+      this.meditation.tts = this.tts;
+    }
+  }
+
+  /**
+   * Wire up TTS callbacks (progress, chunk change, char position)
+   */
+  _wireTTSCallbacks() {
+    // Progress tracking for 3D phone progress bar
+    this.tts.onProgress = (progress) => {
+      if (this.holoPhone3D) {
+        this.holoPhone3D.setProgress(progress);
+      }
+    };
+
+    // Character position for StoryDirector inline directives
+    this.tts.onCharPosition = (charIndex) => {
+      if (this.storyDirector) {
+        this.storyDirector.updateProgress(charIndex);
+      }
+    };
+
+    // CC-style chunk display
+    this.tts.onChunkChange = (chunkText) => {
+      if (this.state === 'speaking') {
+        if (this.holoPhone3D) {
+          this.holoPhone3D.setText(chunkText);
+        }
+        if (this.elements.screenText) {
+          this.elements.screenText.textContent = chunkText;
+        }
+      }
+    };
   }
 }
 

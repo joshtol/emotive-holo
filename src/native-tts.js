@@ -23,6 +23,9 @@ export class NativeTTS {
     this._currentChunkIndex = 0;
     this._wordsPerChunk = 12;
 
+    // Chrome workaround: pause/resume to prevent 15-second timeout
+    this._keepAliveInterval = null;
+
     // Voice selection
     this._preferredVoice = null;
     this._loadVoices();
@@ -298,6 +301,12 @@ export class NativeTTS {
           this.isSpeaking = false;
           this.currentUtterance = null;
 
+          // Clear Chrome keep-alive interval
+          if (this._keepAliveInterval) {
+            clearInterval(this._keepAliveInterval);
+            this._keepAliveInterval = null;
+          }
+
           // Clear fallback timers
           if (this._fallbackStartTimeout) {
             clearTimeout(this._fallbackStartTimeout);
@@ -335,6 +344,12 @@ export class NativeTTS {
           this.isSpeaking = false;
           this.currentUtterance = null;
 
+          // Clear Chrome keep-alive interval
+          if (this._keepAliveInterval) {
+            clearInterval(this._keepAliveInterval);
+            this._keepAliveInterval = null;
+          }
+
           // Reset mascot intensity
           if (this.mascot && this.mascot.resetIntensity) {
             this.mascot.resetIntensity();
@@ -347,6 +362,15 @@ export class NativeTTS {
         // Start speaking
         console.log('TTS speaking:', text.substring(0, 50) + '...');
         this.synth.speak(utterance);
+
+        // Chrome workaround: pause/resume every 10 seconds to prevent timeout bug
+        // Chrome's Web Speech API silently stops after ~15 seconds on long utterances
+        this._keepAliveInterval = setInterval(() => {
+          if (this.synth.speaking && !this.synth.paused) {
+            this.synth.pause();
+            this.synth.resume();
+          }
+        }, 10000);
       });
 
     } catch (error) {
@@ -362,6 +386,12 @@ export class NativeTTS {
     console.log('TTS stop called');
     this.isSpeaking = false;
     this.currentUtterance = null;
+
+    // Clear Chrome keep-alive interval
+    if (this._keepAliveInterval) {
+      clearInterval(this._keepAliveInterval);
+      this._keepAliveInterval = null;
+    }
 
     // Clear fallback timers
     if (this._fallbackStartTimeout) {
