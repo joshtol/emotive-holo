@@ -17,13 +17,16 @@ import { MenuPanel } from './menu-panel.js';
 // Brand teal color (Eye Tea Green)
 const ACCENT_COLOR = '#84CFC5';
 
+// Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
+const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '.';
+
 // Music track options with BPM for rhythm sync
 const TRACKS = [
   {
     id: 'electric-glow-f',
     label: 'Electric Glow (F)',
     desc: 'Female vocal',
-    file: './assets/music/electric-glow-f.wav',
+    file: `${BASE_PATH}/assets/music/electric-glow-f.wav`,
     bpm: 120,
     duration: '3:24'
   },
@@ -31,7 +34,7 @@ const TRACKS = [
     id: 'electric-glow-m',
     label: 'Electric Glow (M)',
     desc: 'Male vocal',
-    file: './assets/music/electric-glow-m.wav',
+    file: `${BASE_PATH}/assets/music/electric-glow-m.wav`,
     bpm: 120,
     duration: '3:18'
   }
