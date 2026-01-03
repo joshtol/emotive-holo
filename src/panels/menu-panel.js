@@ -255,8 +255,9 @@ export class MenuPanel {
    * Handle touch/click on the panel
    * @param {string} regionName - Name of the hit region
    * @param {Object} extra - Extra data from the hit region
+   * @param {Object} canvasCoords - Canvas coordinates { x, y } of the touch
    */
-  handleTouch(regionName, extra = {}) {
+  handleTouch(regionName, extra = {}, canvasCoords = null) {
     switch (regionName) {
       case 'cancel':
         this._handleCancel();
@@ -266,7 +267,8 @@ export class MenuPanel {
         break;
       default:
         // Override in subclass for custom regions
-        this._handleCustomTouch(regionName, extra);
+        // Pass canvas coordinates for position-sensitive controls like scrubber
+        this._handleCustomTouch(regionName, extra, canvasCoords);
     }
   }
 
@@ -577,7 +579,7 @@ export function animateMascotFloat(mascot, up) {
   }
 
   // Float offset - how much higher to raise during selection
-  const floatOffset = 0.15;
+  const floatOffset = 0.18;
   const targetY = up ? _sharedOriginalTargetY - floatOffset : _sharedOriginalTargetY;
   const startY = controls.target.y;
   const duration = 400; // ms
@@ -608,6 +610,61 @@ export function animateMascotFloat(mascot, up) {
   };
 
   animate();
+}
+
+/**
+ * Force lower the mascot regardless of shared state
+ * Used when music stops completely and controls are hidden
+ * @param {Object} mascot - The mascot instance
+ */
+export function forceLowerMascot(mascot) {
+  const controls = mascot?.core3D?.renderer?.controls;
+  if (!controls) return;
+
+  // If not raised, nothing to do
+  if (!_mascotIsRaised || _sharedOriginalTargetY === undefined) {
+    return;
+  }
+
+  // Cancel any existing animation
+  if (_activeFloatAnimationId) {
+    cancelAnimationFrame(_activeFloatAnimationId);
+    _activeFloatAnimationId = null;
+  }
+
+  const targetY = _sharedOriginalTargetY;
+  const startY = controls.target.y;
+  const duration = 400;
+  const startTime = performance.now();
+
+  // Update shared state immediately
+  _mascotIsRaised = false;
+
+  const animate = () => {
+    const elapsed = performance.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+
+    controls.target.y = startY + (targetY - startY) * eased;
+    controls.update();
+
+    if (progress < 1) {
+      _activeFloatAnimationId = requestAnimationFrame(animate);
+    } else {
+      _activeFloatAnimationId = null;
+      _sharedOriginalTargetY = undefined;
+    }
+  };
+
+  animate();
+}
+
+/**
+ * Check if mascot is currently raised
+ * @returns {boolean}
+ */
+export function isMascotRaised() {
+  return _mascotIsRaised;
 }
 
 export default MenuPanel;

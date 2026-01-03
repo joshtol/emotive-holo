@@ -24,8 +24,10 @@ import { MeditatePanel } from './panels/meditate-panel.js';
 import { StoriesPanel } from './panels/stories-panel.js';
 import { SettingsPanel, STORAGE_KEYS } from './panels/settings-panel.js';
 import { MusicPanel } from './panels/music-panel.js';
+import { MoodPanel } from './panels/mood-panel.js';
 import { animateMascotFloat } from './panels/menu-panel.js';
 import { ElevenLabsTTS } from './elevenlabs-tts.js';
+import { MenuManager } from './menu-manager.js';
 import './shadow-debug.js'; // Auto-inits if ?shadow-debug=contact|core|penumbra in URL
 
 class EmoAssistant {
@@ -61,8 +63,16 @@ class EmoAssistant {
     this.storiesPanel = null;
     this.settingsPanel = null;
     this.musicPanel = null;
+    this.moodPanel = null;
     this.storyDirector = null;
     this.tutorial = null;
+
+    // Menu navigation manager
+    this.menuManager = new MenuManager({
+      onStateChange: (state, stack) => {
+        console.log('MenuManager state:', state.type, 'Stack depth:', stack.length);
+      }
+    });
 
     // TTS instances (native and elevenlabs)
     this.nativeTTS = null;
@@ -294,19 +304,35 @@ class EmoAssistant {
           animateMascotFloat(this.mascot, enabled);
 
           if (enabled) {
-            // Show "MOODS" title when entering mood mode
-            this._showMoodTitle('MOODS');
+            // Track mood mode in navigation stack
+            this.menuManager.replace('moodMode');
+            // Show mood panel on holophone for undertone/wobble controls
+            // The panel's _showTitle() displays current emotion + undertone
+            this.setState('panel');
+            this._hideAllPanels();
+            this.moodPanel.show();
           } else {
-            // Hide mood title when exiting mood mode
+            // Hide mood title and panel when exiting mood mode
             const panelTitle = document.getElementById('panel-title');
             if (panelTitle) {
               panelTitle.classList.add('hidden');
             }
+            if (this.moodPanel?.isVisible) {
+              this.moodPanel.hide();
+            }
+            // Close the side menu (hamburger) as well
+            if (this.sideMenu) {
+              this.sideMenu.close();
+            }
+            this.setState('idle');
+            this.resetScreen();
           }
         },
         onOpen: () => {
           this.setState('menu');
-          this.mascot.feel('calm, attentive');
+          // Push menu state to navigation stack
+          this.menuManager.push('menu');
+          // Don't change mascot emotion - preserve user's selection
           // Update holophone hamburger to show close icon
           if (this.holoPhone3D) {
             this.holoPhone3D.setMenuOpen(true);
@@ -317,6 +343,8 @@ class EmoAssistant {
           if (this.state === 'menu') {
             this.setState('idle');
           }
+          // Reset navigation stack when menu fully closes
+          this.menuManager.reset();
           // Update holophone to show hamburger icon
           if (this.holoPhone3D) {
             this.holoPhone3D.setMenuOpen(false);
@@ -515,16 +543,66 @@ class EmoAssistant {
     this.musicPanel = new MusicPanel({
       holoPhone: this.holoPhone3D,
       mascot: this.mascot,
-      onClose: () => {
-        this.setState('idle');
-        this.resetScreen();
-        this.sideMenu.close();
+      onClose: (options) => {
+        // Check if we should exit to idle (from playback mode X button)
+        if (options?.exitToIdle) {
+          this.setState('idle');
+          this.resetScreen();
+          this.sideMenu?.close();
+        } else {
+          // Normal close from track selection - just close panel
+          this.setState('idle');
+          this.resetScreen();
+          this.sideMenu?.close();
+        }
       },
       onConfirm: (data) => {
         console.log('Music confirmed:', data);
+        // If entering playback mode, DON'T close panel - it transforms in place
+        if (data?.playbackMode) {
+          // Panel stays visible in playback mode
+          this.setState('panel');
+          // Close hamburger menu when entering playback mode
+          this.sideMenu?.close();
+          // Sync music UI state
+          this.musicPanel._syncMusicUIState();
+        } else {
+          // Normal confirm - close panel
+          this.setState('idle');
+          this.resetScreen();
+          this.sideMenu?.close();
+          // Sync music UI state - will show controls if playing
+          this.musicPanel._syncMusicUIState();
+        }
+      }
+    });
+
+    // Mood panel for undertone/intensity and wobble toggles
+    this.moodPanel = new MoodPanel({
+      holoPhone: this.holoPhone3D,
+      mascot: this.mascot,
+      onClose: () => {
+        // Exit mood mode completely - close() handles exiting mood mode internally
+        if (this.sideMenu) {
+          this.sideMenu.close();
+        }
         this.setState('idle');
         this.resetScreen();
-        this.sideMenu.close();
+      },
+      onConfirm: (data) => {
+        console.log('Mood settings confirmed:', data);
+        // Exit mood mode completely - close() handles exiting mood mode internally
+        if (this.sideMenu) {
+          this.sideMenu.close();
+        }
+        this.setState('idle');
+        this.resetScreen();
+      },
+      onUndertoneChange: (undertoneId) => {
+        console.log('Undertone changed:', undertoneId);
+      },
+      onWobbleChange: (enabled) => {
+        console.log('Wobble changed:', enabled);
       }
     });
 
@@ -557,6 +635,9 @@ class EmoAssistant {
 
     // Setup event listeners
     this.setupEventListeners();
+
+    // Set up menu manager with reference to this app
+    this.menuManager.setApp(this);
 
     // Initialize tutorial controller
     this.tutorial = new TutorialController({
@@ -629,6 +710,7 @@ class EmoAssistant {
         this.tts.stop();
         this.meditation.stop();
         this.setState('idle');
+        this._resumeMusicAfterMode();
         return;
       }
 
@@ -653,6 +735,13 @@ class EmoAssistant {
       if (this.state === 'carousel' && this._carouselSliderDragging) {
         e.preventDefault();
         this._handleCarouselSliderDrag(e.clientX, e.clientY);
+        return;
+      }
+
+      // Handle panel scrubber drag (music panel)
+      if (this.state === 'panel' && this.musicPanel?.isScrubberDragging?.()) {
+        e.preventDefault();
+        this._handlePanelScrubberDrag(e.clientX, e.clientY);
       }
     });
 
@@ -666,6 +755,12 @@ class EmoAssistant {
         return;
       }
 
+      // End panel scrubber drag (music panel)
+      if (this.musicPanel?.isScrubberDragging?.()) {
+        this.musicPanel.endScrubberDrag();
+        return;
+      }
+
       if (this.state === 'listening') this.stopListening();
     });
 
@@ -673,6 +768,10 @@ class EmoAssistant {
       if (this._carouselSliderDragging) {
         this._carouselSliderDragging = false;
         this._carouselSliderRegion = null;
+      }
+      // End panel scrubber drag on mouse leave
+      if (this.musicPanel?.isScrubberDragging?.()) {
+        this.musicPanel.endScrubberDrag();
       }
       if (this.state === 'listening') this.stopListening();
     });
@@ -703,6 +802,7 @@ class EmoAssistant {
         this.tts.stop();
         this.meditation.stop();
         this.setState('idle');
+        this._resumeMusicAfterMode();
         return;
       }
 
@@ -730,6 +830,14 @@ class EmoAssistant {
         e.preventDefault();
         const touch = e.touches[0];
         this._handleCarouselSliderDrag(touch.clientX, touch.clientY);
+        return;
+      }
+
+      // Handle panel scrubber drag (music panel)
+      if (this.state === 'panel' && this.musicPanel?.isScrubberDragging?.()) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        this._handlePanelScrubberDrag(touch.clientX, touch.clientY);
       }
     }, { passive: false });
 
@@ -744,6 +852,12 @@ class EmoAssistant {
         return;
       }
 
+      // End panel scrubber drag (music panel)
+      if (this.musicPanel?.isScrubberDragging?.()) {
+        this.musicPanel.endScrubberDrag();
+        return;
+      }
+
       if (this.state === 'listening') this.stopListening();
     }, { passive: false });
 
@@ -752,6 +866,10 @@ class EmoAssistant {
       e.preventDefault();
       this._carouselSliderDragging = false;
       this._carouselSliderRegion = null;
+      // End panel scrubber drag on cancel
+      if (this.musicPanel?.isScrubberDragging?.()) {
+        this.musicPanel.endScrubberDrag();
+      }
       if (this.state === 'listening') this.stopListening();
     }, { passive: false });
 
@@ -781,6 +899,7 @@ class EmoAssistant {
         if (this.state === 'meditation') {
           this.meditation.stop();
           this.setState('idle');
+          this._resumeMusicAfterMode();
         } else if (this.state === 'menu') {
           this.closeSideMenu();
         } else {
@@ -800,8 +919,13 @@ class EmoAssistant {
       console.log('Container click, state:', this.state);
 
       if (this.state === 'idle') {
-        console.log('Opening carousel');
+        console.log('Opening carousel from idle');
+        this.menuManager.push('carousel');
         this.openCarousel();
+      } else if (this.state === 'menu' || this.state === 'panel') {
+        // Use MenuManager to navigate to carousel while preserving back state
+        console.log('Opening carousel from menu/panel via MenuManager');
+        this.menuManager.openCarousel();
       }
     });
 
@@ -815,6 +939,8 @@ class EmoAssistant {
     // Meditation end callback
     this.meditation.onEnd = () => {
       this.setState('idle');
+      // Resume music if it was paused for meditation
+      this._resumeMusicAfterMode();
     };
 
     // Voice input result
@@ -1248,19 +1374,34 @@ class EmoAssistant {
   }
 
   closeCarousel() {
-    this.carousel.hide();
-    this.setState('idle');
-    this.resetScreen();
+    // Use MenuManager to handle back navigation
+    const prevState = this.menuManager.previous();
 
-    // Hide floating holographic title
-    if (this.elements.carouselTitle) {
-      this.elements.carouselTitle.classList.add('hidden');
-    }
+    if (prevState && prevState.type !== 'idle') {
+      // We came from a menu/panel - use MenuManager to restore it
+      console.log('Closing carousel, returning to previous state via MenuManager');
+      this.menuManager.closeCarousel();
+    } else {
+      // We came from idle - do normal close
+      console.log('Closing carousel, returning to idle');
+      this.menuManager.reset();
 
-    // Hide hamburger menu and close side menu if open
-    if (this.sideMenu) {
-      this.sideMenu.hideHamburger();
-      this.sideMenu.close();
+      this.carousel.hide();
+      this.setState('idle');
+      this.resetScreen();
+
+      // Hide floating holographic title
+      if (this.elements.carouselTitle) {
+        this.elements.carouselTitle.classList.add('hidden');
+      }
+
+      // Hide hamburger menu
+      if (this.sideMenu) {
+        this.sideMenu.hideHamburger();
+      }
+
+      // Sync music UI state - will show controls if playing
+      this.musicPanel?._syncMusicUIState?.();
     }
 
     // Phone overlay stays visible - it's used for all touch interactions
@@ -1321,35 +1462,31 @@ class EmoAssistant {
       case 'music':
         // Open music panel for track selection
         this.setState('panel');
-        this.mascot.feel('calm, attentive');
         this.musicPanel.show();
         break;
 
       case 'meditate':
         // Open meditate panel to select breathing pattern
         this.setState('panel');
-        this.mascot.feel('calm, attentive');
         this.meditatePanel.show();
         break;
 
       case 'effects':
         // Open effects panel - keep side menu visible
         this.setState('panel');
-        this.mascot.feel('calm, attentive');
         this.effectsPanel.show();
         break;
 
       case 'settings':
         // Open settings panel for TTS configuration
         this.setState('panel');
-        this.mascot.feel('focused, attentive');
         this.settingsPanel.show();
         break;
 
       case 'moods':
         // Enter mood selection mode - replace menu items with emotion SVGs
+        // Don't change mascot emotion - preserve user's selection
         this.sideMenu.setMoodMode(true);
-        this.mascot.feel('calm, attentive');
         break;
 
       case 'stories':
@@ -1378,8 +1515,13 @@ class EmoAssistant {
     // Mark as user-requested so it persists
     this._userRequestedEmotion = true;
 
-    // Show the mood name in the holo title
-    this._showMoodTitle(moodLabel || moodId.toUpperCase());
+    // Update the floating title via MoodPanel if visible (shows emotion + undertone)
+    if (this.moodPanel?.isVisible) {
+      this.moodPanel._updateFloatingTitle();
+    } else {
+      // Fallback to basic title display
+      this._showMoodTitle(moodLabel || moodId.toUpperCase());
+    }
 
     // Keep menu open - user can tap X to close when done exploring moods
   }
@@ -1628,6 +1770,16 @@ class EmoAssistant {
   }
 
   /**
+   * Restore music panel UI after meditation/story (keeps music paused)
+   * Shows the paused music controls so user can resume when ready
+   */
+  _resumeMusicAfterMode() {
+    // Sync music UI - if it was paused-for-mode, controls will show
+    // Music stays paused, user taps play when ready
+    this.musicPanel?._syncMusicUIState();
+  }
+
+  /**
    * Cancel the current AI operation (chat request or TTS playback)
    */
   cancelCurrentOperation() {
@@ -1675,6 +1827,11 @@ class EmoAssistant {
     // Close side menu
     this.sideMenu.close();
 
+    // Pause music if playing (will show paused controls after meditation)
+    if (this.musicPanel?.isPlaying()) {
+      this.musicPanel.pauseForMode();
+    }
+
     // Set the pattern on meditation controller
     if (this.meditation && data.patternId) {
       this.meditation.setPattern(data.patternId);
@@ -1701,6 +1858,11 @@ class EmoAssistant {
   _startStory(data) {
     // Close side menu
     this.sideMenu.close();
+
+    // Pause music if playing (will show paused controls after story)
+    if (this.musicPanel?.isPlaying()) {
+      this.musicPanel.pauseForMode();
+    }
 
     // Get story content based on ID
     const storyContent = this._getStoryContent(data.storyId);
@@ -1738,6 +1900,9 @@ class EmoAssistant {
       this.setState('idle');
       this.mascot.feel('calm, settle');
       this.resetScreen();
+
+      // Resume music if it was paused for story
+      this._resumeMusicAfterMode();
     });
   }
 
@@ -1941,6 +2106,20 @@ class EmoAssistant {
     }
   }
 
+  /**
+   * Handle panel scrubber drag (music panel)
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   */
+  _handlePanelScrubberDrag(clientX, clientY) {
+    if (!this.musicPanel?.isScrubberDragging?.()) return;
+
+    const canvasCoords = this._screenToPhoneCanvas(clientX, clientY);
+    if (!canvasCoords) return;
+
+    this.musicPanel.handleScrubberDrag({ x: canvasCoords.x, y: canvasCoords.y });
+  }
+
   // ==================== PANEL TOUCH HANDLING ====================
 
   /**
@@ -1981,13 +2160,14 @@ class EmoAssistant {
       // Handle panel touch regions with delay for visual feedback
       if (hitRegion.name === 'cancel' || hitRegion.name === 'confirm') {
         setTimeout(() => {
-          activePanel.handleTouch(hitRegion.name, hitRegion.extra);
+          activePanel.handleTouch(hitRegion.name, hitRegion.extra, canvasCoords);
         }, 150);
         return;
       }
 
       // Handle toggle buttons and other regions immediately
-      activePanel.handleTouch(hitRegion.name, hitRegion.extra);
+      // Pass canvas coordinates for scrubber and other position-sensitive controls
+      activePanel.handleTouch(hitRegion.name, hitRegion.extra, canvasCoords);
     }
   }
 
@@ -2001,6 +2181,7 @@ class EmoAssistant {
     if (this.storiesPanel?.isVisible) return this.storiesPanel;
     if (this.settingsPanel?.isVisible) return this.settingsPanel;
     if (this.musicPanel?.isVisible) return this.musicPanel;
+    if (this.moodPanel?.isVisible) return this.moodPanel;
     return null;
   }
 
@@ -2013,12 +2194,13 @@ class EmoAssistant {
     if (this.storiesPanel?.isVisible) this.storiesPanel.hide();
     if (this.settingsPanel?.isVisible) this.settingsPanel.hide();
     if (this.musicPanel?.isVisible) this.musicPanel.hide();
+    if (this.moodPanel?.isVisible) this.moodPanel.hide();
   }
 
   // ==================== IDLE TOUCH HANDLING ====================
 
   /**
-   * Handle touch/click on idle screen (hamburger button)
+   * Handle touch/click on idle or music screen (hamburger button, music controls)
    * @param {number} clientX - Screen X coordinate
    * @param {number} clientY - Screen Y coordinate
    * @returns {boolean} - True if touch was handled, false otherwise
@@ -2031,20 +2213,50 @@ class EmoAssistant {
 
     const hitRegion = this.holoPhone3D.getHitRegion(canvasCoords.x, canvasCoords.y);
 
-    if (hitRegion && hitRegion.name === 'hamburger') {
-      console.log('Hamburger button tapped, menu open:', this.sideMenu?.isOpen);
+    if (hitRegion) {
+      console.log('Idle/Music screen hit:', hitRegion.name);
 
-      // Flash the button for visual feedback
-      this.holoPhone3D.flashButton('hamburger');
+      // Handle hamburger button
+      if (hitRegion.name === 'hamburger') {
+        console.log('Hamburger button tapped, menu open:', this.sideMenu?.isOpen);
 
-      // Toggle side menu after brief delay for visual feedback
-      setTimeout(() => {
-        if (this.sideMenu) {
-          this.sideMenu.toggle();
-        }
-      }, 100);
+        // Flash the button for visual feedback
+        this.holoPhone3D.flashButton('hamburger');
 
-      return true;
+        // Toggle side menu after brief delay for visual feedback
+        setTimeout(() => {
+          if (this.sideMenu) {
+            this.sideMenu.toggle();
+          }
+        }, 100);
+
+        return true;
+      }
+
+      // Handle music controls
+      if (hitRegion.name === 'music-play') {
+        this.holoPhone3D.flashButton('music-play');
+        setTimeout(() => {
+          this.musicPanel?._togglePlayback();
+        }, 50);
+        return true;
+      }
+
+      if (hitRegion.name === 'music-prev') {
+        this.holoPhone3D.flashButton('music-prev');
+        setTimeout(() => {
+          this.musicPanel?._selectPrevTrack();
+        }, 50);
+        return true;
+      }
+
+      if (hitRegion.name === 'music-next') {
+        this.holoPhone3D.flashButton('music-next');
+        setTimeout(() => {
+          this.musicPanel?._selectNextTrack();
+        }, 50);
+        return true;
+      }
     }
 
     return false;

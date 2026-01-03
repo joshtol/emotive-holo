@@ -29,9 +29,12 @@ export class HoloPhone {
 
     // Screen content state
     this._screenText = 'Hold to speak';
-    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel, meditation, panel
+    this._screenState = 'idle';  // idle, listening, processing, speaking, carousel, meditation, panel, music
     this._animationFrame = 0;
     this._progress = 0;  // TTS progress 0-1
+
+    // Music playback state
+    this._musicData = null;  // { trackName, isPlaying, currentTime, duration }
 
     // Button press flash state - tracks which button is currently pressed
     this._pressedButton = null;  // 'cancel', 'confirm', 'prev-geometry', 'next-geometry'
@@ -172,6 +175,9 @@ export class HoloPhone {
         break;
       case 'panel':
         this._drawPanelState(ctx, w, h);
+        break;
+      case 'music':
+        this._drawMusicState(ctx, w, h);
         break;
       default:
         this._drawIdleState(ctx, w, h);
@@ -350,6 +356,137 @@ export class HoloPhone {
       y: buttonY - 5,
       w: buttonSize + 10,
       h: buttonSize + 10
+    });
+  }
+
+  /**
+   * Draw music playback state - track name, play/pause, prev/next controls
+   * Uses Eye Tea Green (#84CFC5) for accent color
+   */
+  _drawMusicState(ctx, w, h) {
+    // Clear hit regions
+    this._carouselHitRegions = [];
+
+    const time = performance.now() / 1000;
+    const pulse = Math.sin(time * 2) * 0.5 + 0.5;  // Faster pulse for music
+
+    // Get music data
+    const data = this._musicData || {};
+    const trackName = data.trackName || 'Unknown Track';
+    const isPlaying = data.isPlaying !== false;
+    const currentTime = data.currentTime || 0;
+    const duration = data.duration || '0:00';
+
+    // Format current time as MM:SS
+    const mins = Math.floor(currentTime / 60);
+    const secs = Math.floor(currentTime % 60);
+    const timeStr = `${mins}:${secs.toString().padStart(2, '0')} / ${duration}`;
+
+    // === LAYOUT ===
+    // Track name at top, controls in middle, time at bottom
+    const accentColor = '#84CFC5';
+    const accentRGB = '132, 207, 197';
+
+    // Draw Emotive Engine logo (smaller, top-left area)
+    if (this._logoImage) {
+      const logoWidth = 120;
+      const logoHeight = logoWidth / (this._logoImage.width / this._logoImage.height);
+      ctx.globalAlpha = 0.4;
+      ctx.drawImage(this._logoImage, 20, 15, logoWidth, logoHeight);
+      ctx.globalAlpha = 1;
+    }
+
+    // Track name with glow
+    ctx.shadowColor = `rgba(${accentRGB}, 0.7)`;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 22px Poppins, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(trackName, w / 2, 45);
+    ctx.shadowBlur = 0;
+
+    // === PLAYBACK CONTROLS ===
+    const controlY = h / 2 + 5;
+    const buttonRadius = 28;
+    const smallButtonRadius = 22;
+    const buttonSpacing = 70;
+
+    // Previous button (left)
+    const prevX = w / 2 - buttonSpacing;
+    this._drawMusicButton(ctx, prevX, controlY, smallButtonRadius, '⏮', 'music-prev', pulse, accentColor, accentRGB);
+
+    // Play/Pause button (center, larger)
+    const playX = w / 2;
+    const playIcon = isPlaying ? '⏸' : '▶';
+    this._drawMusicButton(ctx, playX, controlY, buttonRadius, playIcon, 'music-play', pulse, accentColor, accentRGB, isPlaying);
+
+    // Next button (right)
+    const nextX = w / 2 + buttonSpacing;
+    this._drawMusicButton(ctx, nextX, controlY, smallButtonRadius, '⏭', 'music-next', pulse, accentColor, accentRGB);
+
+    // Time display
+    ctx.shadowColor = `rgba(${accentRGB}, 0.5)`;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = accentColor;
+    ctx.font = '400 16px Poppins, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(timeStr, w / 2, h - 35);
+    ctx.shadowBlur = 0;
+
+    // === HAMBURGER MENU BUTTON (top-right) ===
+    this._drawHamburgerButton(ctx, w, h, pulse);
+  }
+
+  /**
+   * Draw a circular music control button
+   */
+  _drawMusicButton(ctx, x, y, radius, icon, hitName, pulse, accentColor, accentRGB, isActive = false) {
+    // Check if button is pressed
+    const isPressed = this._pressedButton === hitName;
+    const pressProgress = isPressed
+      ? Math.min((performance.now() - this._pressStart) / this._pressDuration, 1)
+      : 0;
+    const flashIntensity = pressProgress < 0.3
+      ? pressProgress / 0.3
+      : 1 - (pressProgress - 0.3) / 0.7;
+
+    // Button circle
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+
+    // Glow effect
+    const glowAlpha = isPressed ? 0.6 + flashIntensity * 0.3 : (isActive ? 0.4 : 0.2) + pulse * 0.1;
+    ctx.shadowColor = `rgba(${accentRGB}, ${glowAlpha})`;
+    ctx.shadowBlur = isPressed ? 15 + flashIntensity * 10 : (isActive ? 12 : 8) + pulse * 4;
+
+    // Background
+    const bgAlpha = isPressed ? 0.3 + flashIntensity * 0.2 : (isActive ? 0.25 : 0.1) + pulse * 0.05;
+    ctx.fillStyle = `rgba(${accentRGB}, ${bgAlpha})`;
+    ctx.fill();
+
+    // Border
+    const borderAlpha = isPressed ? 0.9 : (isActive ? 0.8 : 0.5) + pulse * 0.1;
+    ctx.strokeStyle = `rgba(${accentRGB}, ${borderAlpha})`;
+    ctx.lineWidth = isActive ? 2.5 : 2;
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Icon
+    ctx.fillStyle = isPressed ? '#ffffff' : (isActive ? '#ffffff' : `rgba(255, 255, 255, 0.9)`);
+    ctx.font = `${radius * 0.7}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, x, y);
+
+    // Hit region
+    this._carouselHitRegions.push({
+      name: hitName,
+      x: x - radius - 5,
+      y: y - radius - 5,
+      w: radius * 2 + 10,
+      h: radius * 2 + 10
     });
   }
 
@@ -928,6 +1065,38 @@ export class HoloPhone {
     });
 
     return hitRegions;
+  }
+
+  // ==================== MUSIC STATE ====================
+
+  /**
+   * Set music data and enter music mode
+   * @param {Object|null} data - Music data or null to exit
+   * @param {string} data.trackName - Current track name
+   * @param {boolean} data.isPlaying - Whether music is currently playing
+   * @param {number} data.currentTime - Current playback time in seconds
+   * @param {string} data.duration - Track duration formatted as MM:SS
+   */
+  setMusicData(data) {
+    this._musicData = data;
+    if (data) {
+      this._screenState = 'music';
+    } else {
+      this._screenState = 'idle';
+      this._screenText = 'Hold to speak';
+    }
+    this._renderScreen();
+  }
+
+  /**
+   * Update music data without changing state (for time updates)
+   * @param {Object} data - Partial music data to update
+   */
+  updateMusicData(data) {
+    if (this._musicData && this._screenState === 'music') {
+      Object.assign(this._musicData, data);
+      this._renderScreen();
+    }
   }
 
   // ==================== CAROUSEL STATE ====================

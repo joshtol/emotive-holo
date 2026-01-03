@@ -465,7 +465,7 @@ body {
   left: var(--layout-center-x);
   transform: translateX(-50%) translateY(50%);
   /* Bottom position set dynamically by menu-panel.js */
-  bottom: 38%;
+  bottom: 40%;
   z-index: 100;
   text-align: center;
   pointer-events: none;
@@ -682,7 +682,7 @@ body {
   }
 
   #panel-title {
-    bottom: 42%;
+    bottom: 44%;
   }
 
   #panel-title .title-name {

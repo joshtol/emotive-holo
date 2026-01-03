@@ -12,7 +12,7 @@
 import { CarouselAudio } from './audio/carousel-audio.js';
 
 // Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
-const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
+const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '.';
 
 // Emotion configurations for mood mode
 // Left side: positive emotions, Right side: negative/intense emotions
@@ -775,6 +775,64 @@ export class SideMenu {
 
     // Notify parent
     this.onClose();
+  }
+
+  /**
+   * Hide the menu visually without resetting state
+   * Used by MenuManager to temporarily hide menu when opening carousel
+   * Preserves mood mode and doesn't fire callbacks
+   */
+  hideVisually() {
+    if (!this.isOpen) return;
+
+    // Hide visually but keep isOpen and isMoodMode state
+    this.hamburgerButton.classList.remove('open');
+    this.hamburgerButton.innerHTML = '☰';
+
+    // Hide bracket frames
+    this.leftColumn.classList.remove('visible');
+    this.rightColumn.classList.remove('visible');
+
+    // Animate items out (both regular and mood items)
+    const items = this.container.querySelectorAll('.side-menu-item, .side-menu-mood-item');
+    items.forEach((item) => {
+      item.classList.remove('visible', 'selected');
+    });
+
+    this.selectedItem = null;
+
+    // Don't reset isMoodMode or fire callbacks - caller handles state
+  }
+
+  /**
+   * Restore menu visibility (after hideVisually)
+   * Used by MenuManager to restore menu when returning from carousel
+   */
+  showVisually() {
+    if (!this.isOpen) return;
+
+    this.hamburgerButton.classList.add('open');
+    this.hamburgerButton.innerHTML = '✕';
+
+    // Show bracket frames
+    this.leftColumn.classList.add('visible');
+    this.rightColumn.classList.add('visible');
+
+    // Animate items in (handle both regular and mood items)
+    const leftItems = this.leftColumn.querySelectorAll('.side-menu-item, .side-menu-mood-item');
+    const rightItems = this.rightColumn.querySelectorAll('.side-menu-item, .side-menu-mood-item');
+
+    leftItems.forEach((item, i) => {
+      setTimeout(() => {
+        item.classList.add('visible');
+      }, i * 80);
+    });
+
+    rightItems.forEach((item, i) => {
+      setTimeout(() => {
+        item.classList.add('visible');
+      }, i * 80);
+    });
   }
 
   /**

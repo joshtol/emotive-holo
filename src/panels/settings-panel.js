@@ -83,8 +83,11 @@ export class SettingsPanel extends MenuPanel {
    * Render the settings panel
    */
   render(ctx, w, h, holoPhone) {
-    // Background - solid dark for maximum contrast
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.98)';
+    // Background - gradient for consistency with other panels
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, h);
+    bgGradient.addColorStop(0, 'rgba(20, 25, 30, 0.98)');
+    bgGradient.addColorStop(1, 'rgba(10, 12, 15, 0.99)');
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, w, h);
 
     // Draw brackets
@@ -92,11 +95,11 @@ export class SettingsPanel extends MenuPanel {
       this._bracketRegions = holoPhone.drawPanelBrackets(ctx, w, h);
     }
 
-    // Content area - tighter to brackets for more space
+    // Content area - standardized +16px inset from brackets
     const bracketWidth = 80;
     const bracketInset = 4;
-    const contentX = bracketWidth + bracketInset + 8;
-    const contentW = w - (bracketWidth + bracketInset) * 2 - 16;
+    const contentX = bracketWidth + bracketInset + 16;
+    const contentW = w - (bracketWidth + bracketInset) * 2 - 32;
     const rowEndX = contentX + contentW;
 
     // Clear hit regions
@@ -110,8 +113,8 @@ export class SettingsPanel extends MenuPanel {
     const row1Y = isCompact ? 22 : 32;
     this._drawApiKeyRow(ctx, contentX, row1Y, rowEndX, contentW, 'claude', 'Claude', this._claudeKey, isCompact);
 
-    // Separator - more visible
-    ctx.strokeStyle = 'rgba(132, 207, 197, 0.4)';
+    // Separator - standardized opacity (0.08 for subtle separation)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     const sep1Y = row1Y + (isCompact ? 48 : 54);
