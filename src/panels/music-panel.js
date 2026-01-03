@@ -18,7 +18,7 @@ import { MenuPanel } from './menu-panel.js';
 const ACCENT_COLOR = '#84CFC5';
 
 // Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
-const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '.';
+const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
 
 // Music track options with BPM for rhythm sync
 const TRACKS = [
