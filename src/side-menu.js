@@ -12,7 +12,7 @@
 import { CarouselAudio } from './audio/carousel-audio.js';
 
 // Detect base path for assets (handles GitHub Pages /emotive-holo/ prefix)
-const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '.';
+const BASE_PATH = window.location.pathname.includes('/emotive-holo/') ? '/emotive-holo' : '';
 
 // Emotion configurations for mood mode
 // Left side: positive emotions, Right side: negative/intense emotions
